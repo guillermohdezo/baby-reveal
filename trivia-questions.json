@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "question": "¿Cuántos meses dura el embarazo?",
+    "correctAnswer": "9",
+    "points": 10,
+    "type": "number"
+  },
+  {
+    "id": 2,
+    "question": "¿Cuál es el primer sentido que desarrolla un bebé?",
+    "correctAnswer": "tacto",
+    "points": 15,
+    "type": "text"
+  },
+  {
+    "id": 1762711002247,
+    "question": "¿Cuantos tiempo en semasnas de enbarazo llevamos?",
+    "correctAnswer": "11",
+    "points": 10,
+    "type": "number"
+  }
+]
