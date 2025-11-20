@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
+import AdminLogin from './AdminLogin';
 
 const AdminPanel = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
   const [socket, setSocket] = useState(null);
   const [triviaQuestions, setTriviaQuestions] = useState([]);
   const [guests, setGuests] = useState([]);
@@ -20,7 +23,17 @@ const AdminPanel = () => {
 
   const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
 
+  // Verificar autenticación al cargar
   useEffect(() => {
+    const savedPassword = localStorage.getItem('adminPassword');
+    if (savedPassword) {
+      setAdminPassword(savedPassword);
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
     const newSocket = io(API_BASE);
     setSocket(newSocket);
 
@@ -52,32 +65,72 @@ const AdminPanel = () => {
     }, 2000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
+
+  // Helper para hacer peticiones autenticadas
+  const authenticatedRequest = (config) => {
+    return {
+      ...config,
+      headers: {
+        ...config.headers,
+        'x-admin-password': adminPassword
+      }
+    };
+  };
+
+  const handleLogin = (password) => {
+    setAdminPassword(password);
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('adminPassword');
+    setIsAuthenticated(false);
+    setAdminPassword('');
+  };
 
   const loadTriviaQuestions = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/api/trivia`);
+      const response = await axios(authenticatedRequest({
+        method: 'get',
+        url: `${API_BASE}/api/trivia`
+      }));
       setTriviaQuestions(response.data);
     } catch (error) {
       console.error('Error cargando preguntas:', error);
+      if (error.response?.status === 401) {
+        handleLogout();
+      }
     }
   };
 
   const loadGender = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/api/gender`);
+      const response = await axios(authenticatedRequest({
+        method: 'get',
+        url: `${API_BASE}/api/gender`
+      }));
       setBabyGender(response.data.gender || '');
     } catch (error) {
       console.error('Error cargando género:', error);
+      if (error.response?.status === 401) {
+        handleLogout();
+      }
     }
   };
 
   const loadStatus = async () => {
     try {
-      const response = await axios.get(`${API_BASE}/api/status`);
+      const response = await axios(authenticatedRequest({
+        method: 'get',
+        url: `${API_BASE}/api/status`
+      }));
       setEventStatus(response.data);
     } catch (error) {
       console.error('Error cargando estado:', error);
+      if (error.response?.status === 401) {
+        handleLogout();
+      }
     }
   };
 
@@ -213,12 +266,41 @@ const AdminPanel = () => {
     });
   };
 
-  return (
+  const adminContent = (
     <div className="admin-panel">
       <div className="container">
-        <h1 style={{ color: 'white', textAlign: 'center', marginBottom: '30px' }}>
-          🎛️ Panel de Administración
-        </h1>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: '30px' 
+        }}>
+          <h1 style={{ color: 'white', margin: 0 }}>
+            🎛️ Panel de Administración
+          </h1>
+          <button
+            onClick={handleLogout}
+            style={{
+              background: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              border: '1px solid rgba(255,255,255,0.3)',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontFamily: 'Poppins, sans-serif',
+              fontSize: '14px',
+              transition: 'all 0.3s'
+            }}
+            onMouseOver={(e) => {
+              e.target.style.background = 'rgba(255,255,255,0.3)';
+            }}
+            onMouseOut={(e) => {
+              e.target.style.background = 'rgba(255,255,255,0.2)';
+            }}
+          >
+            🚪 Cerrar Sesión
+          </button>
+        </div>
 
         <div className="admin-grid">
           {/* Estado del evento */}
@@ -671,6 +753,13 @@ const AdminPanel = () => {
       </div>
     </div>
   );
+
+  // Mostrar pantalla de login si no está autenticado
+  if (!isAuthenticated) {
+    return <AdminLogin onLogin={handleLogin} />;
+  }
+
+  return adminContent;
 };
 
 export default AdminPanel;

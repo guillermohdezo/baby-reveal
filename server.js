@@ -20,6 +20,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'client/build')));
 
+// Middleware de autenticación para admin
+const authenticateAdmin = (req, res, next) => {
+  const password = req.headers['x-admin-password'] || req.body.password;
+  if (password === ADMIN_PASSWORD) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Contraseña incorrecta' });
+  }
+};
+
 // Archivo para persistir las preguntas de trivia
 const TRIVIA_FILE = path.join(__dirname, 'trivia-questions.json');
 
@@ -71,6 +81,7 @@ let triviaResponses = new Map(); // guestId -> response
 let finalVotes = new Map(); // guestId -> "boy" | "girl"
 let babyGender = null; // "boy" | "girl"
 let eventState = "waiting"; // waiting, trivia-active, trivia-results, voting-active, voting-results, countdown, revealed, trivia-winner
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123"; // Contraseña del administrador
 let triviaScores = new Map(); // guestId -> total score
 let currentTriviaIndex = 0;
 let triviaResults = [];
@@ -431,11 +442,11 @@ io.on('connection', (socket) => {
 });
 
 // API Routes
-app.get('/api/trivia', (req, res) => {
+app.get('/api/trivia', authenticateAdmin, (req, res) => {
   res.json(triviaQuestions);
 });
 
-app.post('/api/trivia', (req, res) => {
+app.post('/api/trivia', authenticateAdmin, (req, res) => {
   const { question, correctAnswer, points, type } = req.body;
   const newQuestion = {
     id: Date.now(),
@@ -478,20 +489,30 @@ app.delete('/api/trivia/:id', (req, res) => {
   }
 });
 
-app.get('/api/gender', (req, res) => {
+app.get('/api/gender', authenticateAdmin, (req, res) => {
   res.json({ gender: babyGender });
 });
 
-app.post('/api/gender', (req, res) => {
+app.post('/api/gender', authenticateAdmin, (req, res) => {
   babyGender = req.body.gender;
   res.json({ gender: babyGender });
 });
 
-app.get('/api/guests', (req, res) => {
+// Endpoint de login para admin
+app.post('/api/admin/login', (req, res) => {
+  const { password } = req.body;
+  if (password === ADMIN_PASSWORD) {
+    res.json({ success: true, message: 'Acceso concedido' });
+  } else {
+    res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+  }
+});
+
+app.get('/api/guests', authenticateAdmin, (req, res) => {
   res.json(Array.from(guests.values()));
 });
 
-app.get('/api/status', (req, res) => {
+app.get('/api/status', authenticateAdmin, (req, res) => {
   // Calcular votos actuales
   const voteCounts = {
     boy: { count: 0, names: [] },
