@@ -19,7 +19,10 @@ function GuestInterface() {
   const [drawingCountdown, setDrawingCountdown] = useState(0);
   const [isDrawing, setIsDrawing] = useState(false);
   const [canvasRef] = useState(() => React.createRef());
-  const [totalScore, setTotalScore] = useState(0);
+  const [totalScore, setTotalScore] = useState(() => {
+    const saved = localStorage.getItem('guestTotalScore');
+    return saved !== null ? parseInt(saved, 10) : 0;
+  });
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [votingData, setVotingData] = useState({ boy: { count: 0, names: [] }, girl: { count: 0, names: [] } });
   const [currentVote, setCurrentVote] = useState(null);
@@ -35,24 +38,18 @@ function GuestInterface() {
   const [drawingResults, setDrawingResults] = useState(null);
   const [emojis] = useState(['🎉', '😂', '😍', '👏', '😮', '😎', '🥳', '😭', '🤩', '😱']);
   const messagesEndRef = useRef(null);
-
-  // Mostrar confetti durante la revelación
-  // The confetti logic should be inside this main component, not in a separate function.
+  const [serverError, setServerError] = useState(null);
+  // Inicializar canvas con alta resolución al montar y cuando cambia el ref
   useEffect(() => {
-    if (eventState === 'revealed') {
-      setShowConfetti(true);
-      const timeout = setTimeout(() => setShowConfetti(false), 10000);
-      return () => clearTimeout(timeout);
-    }
-  }, [eventState]);
+    initializeCanvas();
+  }, [canvasRef]);
+
   // Listener para inicio de trivia
   useEffect(() => {
     if (!socket) return;
     const handler = (data) => {
       setCurrentTrivia({
-        question: data.question,
-        type: data.type,
-        points: data.points,
+        ...data,
         id: data.questionId,
         options: data.options || null
       });
@@ -67,12 +64,30 @@ function GuestInterface() {
     };
   }, [socket]);
 
+  // ...rest of the code (all hooks and logic)...
+
+  // The return statement should be at the end of the component, after all hooks and logic.
+  //      id: data.questionId,
+  //      options: data.options || null
+  //    });
+  //    setEventState('trivia-active');
+  //    setTriviaPersonalResult(null);
+  //    setResponseSubmitted(false);
+  //    setTriviaAnswer('');
+  //  };
+  //  socket.on('trivia-question-started', handler);
+  //  return () => {
+  //    socket.off('trivia-question-started', handler);
+  //  };
+  //}, [socket]);
+
   // Listener para puntos ganados en el minijuego de dibujo
   useEffect(() => {
     if (!socket) return;
     const handler = (data) => {
       if (typeof data.totalScore === 'number') {
         setTotalScore(data.totalScore);
+        localStorage.setItem('guestTotalScore', data.totalScore);
       }
     };
     socket.on('drawing-points-awarded', handler);
@@ -92,6 +107,7 @@ function GuestInterface() {
       });
       if (typeof data.totalScore === 'number') {
         setTotalScore(data.totalScore);
+        localStorage.setItem('guestTotalScore', data.totalScore);
       }
       setResponseSubmitted(false);
       setCurrentTrivia(null);
@@ -276,23 +292,8 @@ function GuestInterface() {
       setIsRegistered(true);
       setGuestId(data.guestId);
       setTotalScore(data.totalScore || 0);
-      // Guardar datos del invitado en localStorage
       localStorage.setItem('guestData', JSON.stringify({ guestId: data.guestId, name: guestName }));
-    });
-
-    socket.on('registration-failed', (msg) => {
-      alert(msg || 'No se pudo registrar. Intenta con otro nombre.');
-    });
-
-    // Listener para mensajes nuevos
-    if (!socket) return;
-
-    // Listeners solo si socket existe
-    socket.on('registration-success', (data) => {
-      setIsRegistered(true);
-      setGuestId(data.guestId);
-      setTotalScore(data.totalScore || 0);
-      localStorage.setItem('guestData', JSON.stringify({ guestId: data.guestId, name: guestName }));
+      localStorage.setItem('guestTotalScore', data.totalScore || 0);
     });
 
     socket.on('registration-failed', (msg) => {
@@ -318,10 +319,7 @@ function GuestInterface() {
       setDrawingCountdown(duration);
       setDrawingSubmitted(false);
       setEventState('drawing-active');
-      if (canvasRef.current) {
-        const ctx = canvasRef.current.getContext('2d');
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      }
+      initializeCanvas();
     });
 
     socket.on('drawing-countdown-update', (count) => {
@@ -344,6 +342,10 @@ function GuestInterface() {
       socket.off('drawing-voting-started');
     };
   }, [socket, guestName]);
+  // Persist totalScore to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('guestTotalScore', totalScore);
+  }, [totalScore]);
 
   const submitTriviaAnswer = (e) => {
     e.preventDefault();
@@ -362,31 +364,51 @@ function GuestInterface() {
   // Funciones del minijuego de dibujo
   const initializeCanvas = () => {
     if (!canvasRef.current) return;
-    
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    
-    // Configurar canvas
-    canvas.width = 400;
-    canvas.height = 300;
+    // Tamaño visual
+    const displayWidth = 500;
+    const displayHeight = 350;
+    const scale = window.devicePixelRatio || 1;
+    canvas.width = displayWidth * scale;
+    canvas.height = displayHeight * scale;
+    canvas.style.width = displayWidth + 'px';
+    canvas.style.height = displayHeight + 'px';
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+    ctx.scale(scale, scale);
     ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, displayWidth, displayHeight);
     ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
   };
 
+
+  // --- Dibujo con mouse y touch ---
+  const getPointerPos = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    // Ajustar a la escala real del canvas
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
+    return { x, y };
+  };
+
   const startDrawing = (e) => {
     if (drawingSubmitted || drawingCountdown <= 0) return;
-    
+    e.preventDefault();
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
+    const { x, y } = getPointerPos(e);
     setIsDrawing(true);
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -394,29 +416,22 @@ function GuestInterface() {
 
   const draw = (e) => {
     if (!isDrawing || drawingSubmitted || drawingCountdown <= 0) return;
-    
+    e.preventDefault();
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
+    const { x, y } = getPointerPos(e);
     ctx.lineTo(x, y);
     ctx.stroke();
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (e) => {
+    if (e) e.preventDefault();
     setIsDrawing(false);
   };
 
   const clearCanvas = () => {
     if (drawingSubmitted || drawingCountdown <= 0) return;
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    initializeCanvas();
   };
 
   const submitDrawing = () => {
@@ -446,22 +461,43 @@ function GuestInterface() {
   const changeUser = () => {
     // Limpiar datos guardados
     localStorage.removeItem('guestData');
-    
-    // Resetear estado
-    setIsRegistered(false);
-    setGuestId(null);
-    setGuestName('');
-    setTotalScore(0);
-    setTriviaPersonalResult(null);
-    setResponseSubmitted(false);
-    setTriviaAnswer('');
-    setCurrentVote(null);
-    setHasVoted(false);
-    setMessages([]);
-    setEventState('waiting');
-    
-    // Recargar la página para reiniciar completamente
-    window.location.reload();
+    localStorage.removeItem('guestTotalScore');
+
+    // Notificar al backend para eliminar el invitado inmediatamente
+    if (socket && guestId) {
+      socket.emit('remove-guest', { guestId });
+      setTimeout(() => {
+        socket.disconnect();
+        // Resetear estado
+        setIsRegistered(false);
+        setGuestId(null);
+        setGuestName('');
+        setTotalScore(0);
+        setTriviaPersonalResult(null);
+        setResponseSubmitted(false);
+        setTriviaAnswer('');
+        setCurrentVote(null);
+        setHasVoted(false);
+        setMessages([]);
+        setEventState('waiting');
+        // Recargar la página para reiniciar completamente
+        window.location.reload();
+      }, 200);
+    } else {
+      // Resetear estado
+      setIsRegistered(false);
+      setGuestId(null);
+      setGuestName('');
+      setTotalScore(0);
+      setTriviaPersonalResult(null);
+      setResponseSubmitted(false);
+      setTriviaAnswer('');
+      setCurrentVote(null);
+      setHasVoted(false);
+      setMessages([]);
+      setEventState('waiting');
+      window.location.reload();
+    }
   };
 
   if (!isRegistered) {
@@ -577,40 +613,45 @@ function GuestInterface() {
               <div className="form-group">
                 {currentTrivia.options && currentTrivia.type === 'multiple-choice' ? (
                   <div style={{ textAlign: 'left' }}>
-                    {currentTrivia.options.map((option, index) => (
-                      <label key={index} style={{
-                        display: 'block',
-                        margin: '15px 0',
-                        padding: '15px',
-                        background: triviaAnswer === String.fromCharCode(65 + index)
-                          ? 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)'
-                          : 'rgba(255,255,255,0.1)',
-                        color: 'white',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        fontWeight: 'bold',
-                        fontSize: '16px',
-                        border: triviaAnswer === String.fromCharCode(65 + index)
-                          ? '2px solid #6c5ce7'
-                          : '2px solid transparent',
-                        transition: 'all 0.2s'
-                      }}>
-                        <input
-                          type="radio"
-                          name="trivia-option"
-                          value={String.fromCharCode(65 + index)}
-                          checked={triviaAnswer === String.fromCharCode(65 + index)}
-                          onChange={() => setTriviaAnswer(String.fromCharCode(65 + index))}
-                          style={{ marginRight: '10px' }}
-                        />
-                        <span style={{ fontWeight: 'bold', marginRight: '8px' }}>{String.fromCharCode(65 + index)}.</span>
-                        {option}
-                      </label>
-                    ))}
+                    {currentTrivia.options.map((option, index) => {
+                      const isSelected = triviaAnswer === String.fromCharCode(65 + index);
+                      const background = isSelected
+                        ? 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)'
+                        : 'rgba(255,255,255,0.1)';
+                      const color = isSelected ? 'white' : '#222';
+                      return (
+                        <label key={index} style={{
+                          display: 'block',
+                          margin: '15px 0',
+                          padding: '15px',
+                          background,
+                          color,
+                          borderRadius: '10px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                          fontSize: '16px',
+                          border: isSelected ? '2px solid #6c5ce7' : '2px solid transparent',
+                          transition: 'all 0.2s'
+                        }}>
+                          <input
+                            type="radio"
+                            name="trivia-option"
+                            value={String.fromCharCode(65 + index)}
+                            checked={isSelected}
+                            onChange={() => setTriviaAnswer(String.fromCharCode(65 + index))}
+                            style={{ marginRight: '10px' }}
+                          />
+                          <span style={{ fontWeight: 'bold', marginRight: '8px' }}>{String.fromCharCode(65 + index)}.</span>
+                          {option}
+                        </label>
+                      );
+                    })}
                   </div>
                 ) : (
                   <input
-                    type="text"
+                    type={currentTrivia.type === 'number' ? 'number' : 'text'}
+                    inputMode={currentTrivia.type === 'number' ? 'numeric' : undefined}
+                    pattern={currentTrivia.type === 'number' ? '[0-9]*' : undefined}
                     className="form-input"
                     value={triviaAnswer}
                     onChange={(e) => setTriviaAnswer(e.target.value)}
@@ -770,22 +811,36 @@ function GuestInterface() {
 
           {!drawingSubmitted ? (
             <div style={{ textAlign: 'center' }}>
+
               <canvas
                 ref={canvasRef}
+                className="drawing-canvas"
                 style={{
+                  width: '100%',
+                  height: '350px',
+                  maxWidth: '500px',
+                  maxHeight: '60vh',
+                  minWidth: '220px',
+                  minHeight: '180px',
+                  boxSizing: 'border-box',
+                  touchAction: 'none',
+                  background: 'white',
+                  display: 'block',
+                  margin: '0 auto 15px auto',
                   border: '2px solid #ddd',
                   borderRadius: '8px',
                   cursor: drawingCountdown > 0 ? 'crosshair' : 'not-allowed',
-                  marginBottom: '15px',
-                  maxWidth: '100%',
-                  background: 'white'
                 }}
                 onMouseDown={startDrawing}
                 onMouseMove={draw}
                 onMouseUp={stopDrawing}
                 onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchMove={draw}
+                onTouchEnd={stopDrawing}
+                onTouchCancel={stopDrawing}
               />
-              
+                {/* Canvas para dibujo */}
               <div style={{ marginBottom: '15px' }}>
                 <button
                   onClick={clearCanvas}
@@ -803,7 +858,6 @@ function GuestInterface() {
                 >
                   🗑️ Limpiar
                 </button>
-                
                 <button
                   onClick={submitDrawing}
                   disabled={drawingSubmitted || drawingCountdown <= 0}
@@ -820,9 +874,8 @@ function GuestInterface() {
                   📤 Enviar Dibujo
                 </button>
               </div>
-              
               <div style={{ fontSize: '14px', color: 'rgba(0, 0, 0, 0.7)' }}>
-                💡 Haz clic y arrastra para dibujar. El dibujo se enviará automáticamente cuando termine el tiempo.
+                💡 Puedes dibujar con el dedo o mouse. El dibujo se enviará automáticamente cuando termine el tiempo.
               </div>
             </div>
           ) : (
@@ -1010,66 +1063,51 @@ function GuestInterface() {
           <h2 style={{ color: 'white', marginBottom: '30px' }}>
             🎊 ¡La revelación está por llegar! 🎊
           </h2>
-          {countdown > 0 && (
-            <div className="countdown-number">{countdown}</div>
-          )}
-          {countdown === 0 && (
-            <div style={{ color: 'white', fontSize: '36px', fontWeight: 'bold' }}>
-              🎉 ¡YA! 🎉
+          {serverError ? (
+            <div style={{
+              background: 'rgba(0,0,0,0.85)',
+              color: 'white',
+              borderRadius: '20px',
+              padding: '40px',
+              fontSize: '2rem',
+              fontWeight: 'bold',
+              textAlign: 'center',
+              margin: '30px auto',
+              maxWidth: '600px',
+              boxShadow: '0 4px 30px rgba(0,0,0,0.3)'
+            }}>
+              <div style={{ fontSize: '4rem', marginBottom: '20px' }}>🎉</div>
+              Felicidades es {'{null}'}
             </div>
-          )}
+          ) : countdown > 0 ? (
+            <div className="countdown-number">{countdown}</div>
+          ) : null}
         </div>
       )}
 
       {/* Revelación */}
       {eventState === 'revealed' && revealedGender && (
-        <>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: '100vh',
+            background: revealedGender === 'boy'
+              ? 'linear-gradient(135deg, #71b8ff00 0%, rgba(250, 250, 250, 0)00%)'
+              : 'linear-gradient(135deg, #fd79a700 0%, #e8439300 0%)',
+            color: 'white',
+            textAlign: 'center',
+            position: 'relative',
+            zIndex: 10
+          }}
+        >
           {showConfetti && <Confetti />}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              minHeight: '100vh',
-              background: revealedGender === 'boy'
-                ? 'linear-gradient(135deg, #71b8ff00 0%, rgba(250, 250, 250, 0)00%)'
-                : 'linear-gradient(135deg, #fd79a700 0%, #e8439300 0%)',
-              color: 'white',
-              textAlign: 'center',
-              position: 'relative',
-              zIndex: 10
-            }}
-          >
-            <div style={{ fontSize: '200px', marginBottom: '40px', animation: 'bounce 2s infinite' }}>
-              {revealedGender === 'boy' ? '👦' : '👧'}
-            </div>
-            <h1
-              style={{
-                fontSize: '96px',
-                fontWeight: 'bold',
-                marginBottom: '30px',
-                textShadow: '0 0 30px rgba(0,0,0,0.3)',
-                animation: 'glow 2s infinite alternate'
-              }}
-            >
-              {revealedGender === 'boy' ? '¡ES UN NIÑO!' : '¡ES UNA NIÑA!'}
-            </h1>
-            <div style={{ fontSize: '48px', marginTop: '40px', opacity: 0.9 }}>
-              🎉 ¡Felicidades a America y Guillermo! 🎉
-            </div>
-            <style>{`
-              @keyframes bounce {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-30px); }
-              }
-              @keyframes glow {
-                0% { text-shadow: 0 0 30px rgba(0,0,0,0.3); }
-                100% { text-shadow: 0 0 50px rgba(255,255,255,0.5), 0 0 60px rgba(255,255,255,0.3); }
-              }
-            `}</style>
+          <div style={{ fontSize: '200px', marginBottom: '40px', animation: 'bounce 2s infinite' }}>
+            Felicidades es N...
           </div>
-        </>
+        </div>
       )}
 
       {/* Pantalla Ganador de Trivia */}
@@ -1277,11 +1315,11 @@ function GuestInterface() {
           </div>
         </>
       )}
-      </div>
     </div>
-
+  </div>
   );
 }
-
 export default GuestInterface;
+
+
 

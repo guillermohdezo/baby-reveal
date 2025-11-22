@@ -131,6 +131,30 @@ function broadcastDrawingVotes() {
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
+      // Simular error 500 al finalizar la cuenta regresiva
+      socket.on('countdown-finished', () => {
+        // Emitir un error 500 a todos los clientes
+        io.emit('server-error', { code: 500, message: 'Error interno del servidor (simulado)' });
+        console.error('Simulación de error 500 al finalizar la cuenta regresiva');
+      });
+    // Eliminar invitado inmediatamente al recibir 'remove-guest'
+    socket.on('remove-guest', (data) => {
+      const { guestId } = data;
+      if (guestId && guests.has(guestId)) {
+        const guest = guests.get(guestId);
+        guests.delete(guestId);
+        triviaScores.delete(guestId);
+        drawingScores.delete(guestId);
+        // Eliminar votos y respuestas asociadas
+        triviaResponses.delete(guestId);
+        finalVotes.delete(guestId);
+        drawingSubmissions.delete(guestId);
+        drawingVotes.delete(guestId);
+        guestVotedDrawings.delete(guestId);
+        io.emit('guest-update', Array.from(guests.values()));
+        console.log(`Invitado eliminado inmediatamente: ${guest.name}`);
+      }
+    });
   console.log('Usuario conectado:', socket.id);
 
   // Registro de invitado

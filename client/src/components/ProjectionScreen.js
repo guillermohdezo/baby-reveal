@@ -3,6 +3,7 @@ import io from 'socket.io-client';
 import Confetti from 'react-confetti';
 
 const ProjectionScreen = () => {
+    
   const [socket, setSocket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [floatingEmojis, setFloatingEmojis] = useState([]);
@@ -22,18 +23,54 @@ const ProjectionScreen = () => {
   const [currentVotingIndex, setCurrentVotingIndex] = useState(0);
   const [drawingResults, setDrawingResults] = useState(null);
   const currentEventStateRef = useRef('waiting');
+  const [serverError, setServerError] = useState(null);
 
   // Actualizar la referencia cuando cambie el estado
   useEffect(() => {
     currentEventStateRef.current = eventState;
   }, [eventState]);
 
+  // Mostrar error 500 automáticamente cuando countdown === 0 en cuenta regresiva
+  useEffect(() => {
+    if (eventState === 'countdown' && countdown === 0) {
+      setServerError({
+        code: 500,
+        message: 'No se pudo procesar la cuenta regresiva. La cuenta regresiva fue menor a 0 y no se controló este caso. (¡Broma! 😅)'
+      });
+    } else if (eventState !== 'countdown') {
+      setServerError(null);
+    }
+  }, [eventState, countdown]);
+  // Typewriter animation for error overlay
+  const [typewriterText, setTypewriterText] = useState('');
+  const typewriterFullText = 'Felicidades es N';
+  useEffect(() => {
+    if (serverError) {
+      setTypewriterText('');
+      let i = 0;
+      const interval = setInterval(() => {
+        setTypewriterText(typewriterFullText.slice(0, i + 1));
+        i++;
+        if (i === typewriterFullText.length) {
+          clearInterval(interval);
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setTypewriterText('');
+    }
+    // eslint-disable-next-line
+  }, [serverError]);
   useEffect(() => {
     const newSocket = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001');
     setSocket(newSocket);
 
     newSocket.on('guest-update', (guestList) => {
       setGuests(guestList);
+    });
+
+    newSocket.on('server-error', (err) => {
+      setServerError(err);
     });
 
     newSocket.on('new-message', (message) => {
@@ -726,7 +763,33 @@ const ProjectionScreen = () => {
         🎊 ¡La revelación está por llegar! 🎊
       </h1>
       
-      {countdown > 0 && (
+      {serverError ? (
+        <div style={{
+          background: 'rgba(0,0,0,0.85)',
+          color: 'white',
+          borderRadius: '20px',
+          padding: '40px',
+          fontSize: '2rem',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          margin: '30px auto',
+          maxWidth: '600px',
+          boxShadow: '0 4px 30px rgba(0,0,0,0.3)',
+          zIndex: 10,
+          letterSpacing: '2px',
+          minHeight: '120px',
+        }}>
+          <div style={{ fontSize: '4rem', marginBottom: '20px' }}>🎉</div>
+          <span style={{
+            borderRight: '2px solid #fff',
+            paddingRight: '4px',
+            animation: 'blink-cursor 1s steps(1) infinite',
+            whiteSpace: 'pre',
+            fontFamily: 'monospace',
+          }}>{typewriterText}</span>
+          <style>{`@keyframes blink-cursor { 0%,100%{opacity:1;} 50%{opacity:0;} }`}</style>
+        </div>
+      ) : countdown > 0 ? (
         <div style={{ 
           fontSize: '200px', 
           fontWeight: 'bold',
@@ -736,19 +799,7 @@ const ProjectionScreen = () => {
         }}>
           {countdown}
         </div>
-      )}
-      
-      {countdown === 0 && (
-        <div style={{ 
-          fontSize: '96px', 
-          fontWeight: 'bold',
-          textShadow: '0 0 50px rgba(255,255,255,0.8)',
-          animation: 'glow 0.5s infinite alternate',
-          zIndex: 1
-        }}>
-          🎉 ¡YA! 🎉
-        </div>
-      )}
+      ) : null}
 
       <style>{`
         @keyframes pulse {
