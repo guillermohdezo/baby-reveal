@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Confetti from 'react-confetti';
+
 import io from 'socket.io-client';
 
-
 function GuestInterface() {
-
   // State and refs
+  const [eventState, setEventState] = useState('waiting');
+  const [showConfetti, setShowConfetti] = useState(false);
   const [messages, setMessages] = useState([]);
   const [socket, setSocket] = useState(null);
   const [guestName, setGuestName] = useState('');
@@ -18,7 +20,6 @@ function GuestInterface() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [canvasRef] = useState(() => React.createRef());
   const [totalScore, setTotalScore] = useState(0);
-  const [eventState, setEventState] = useState('waiting');
   const [floatingEmojis, setFloatingEmojis] = useState([]);
   const [votingData, setVotingData] = useState({ boy: { count: 0, names: [] }, girl: { count: 0, names: [] } });
   const [currentVote, setCurrentVote] = useState(null);
@@ -34,6 +35,16 @@ function GuestInterface() {
   const [drawingResults, setDrawingResults] = useState(null);
   const [emojis] = useState(['🎉', '😂', '😍', '👏', '😮', '😎', '🥳', '😭', '🤩', '😱']);
   const messagesEndRef = useRef(null);
+
+  // Mostrar confetti durante la revelación
+  // The confetti logic should be inside this main component, not in a separate function.
+  useEffect(() => {
+    if (eventState === 'revealed') {
+      setShowConfetti(true);
+      const timeout = setTimeout(() => setShowConfetti(false), 10000);
+      return () => clearTimeout(timeout);
+    }
+  }, [eventState]);
   // Listener para inicio de trivia
   useEffect(() => {
     if (!socket) return;
@@ -1012,14 +1023,53 @@ function GuestInterface() {
 
       {/* Revelación */}
       {eventState === 'revealed' && revealedGender && (
-        <div className="reveal-container">
-          <div className={`reveal-text ${revealedGender === 'boy' ? 'reveal-boy' : 'reveal-girl'}`}>
-            {revealedGender === 'boy' ? '👦 ¡ES UN NIÑO! 👦' : '👧 ¡ES UNA NIÑA! 👧'}
+        <>
+          {showConfetti && <Confetti />}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              alignItems: 'center',
+              minHeight: '100vh',
+              background: revealedGender === 'boy'
+                ? 'linear-gradient(135deg, #71b8ff00 0%, rgba(250, 250, 250, 0)00%)'
+                : 'linear-gradient(135deg, #fd79a700 0%, #e8439300 0%)',
+              color: 'white',
+              textAlign: 'center',
+              position: 'relative',
+              zIndex: 10
+            }}
+          >
+            <div style={{ fontSize: '200px', marginBottom: '40px', animation: 'bounce 2s infinite' }}>
+              {revealedGender === 'boy' ? '👦' : '👧'}
+            </div>
+            <h1
+              style={{
+                fontSize: '96px',
+                fontWeight: 'bold',
+                marginBottom: '30px',
+                textShadow: '0 0 30px rgba(0,0,0,0.3)',
+                animation: 'glow 2s infinite alternate'
+              }}
+            >
+              {revealedGender === 'boy' ? '¡ES UN NIÑO!' : '¡ES UNA NIÑA!'}
+            </h1>
+            <div style={{ fontSize: '48px', marginTop: '40px', opacity: 0.9 }}>
+              🎉 ¡Felicidades a America y Guillermo! 🎉
+            </div>
+            <style>{`
+              @keyframes bounce {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-30px); }
+              }
+              @keyframes glow {
+                0% { text-shadow: 0 0 30px rgba(0,0,0,0.3); }
+                100% { text-shadow: 0 0 50px rgba(255,255,255,0.5), 0 0 60px rgba(255,255,255,0.3); }
+              }
+            `}</style>
           </div>
-          <div style={{ fontSize: '24px', color: 'white', marginTop: '20px' }}>
-            🎉 ¡Felicidades a America y Guillermo! 🎉
-          </div>
-        </div>
+        </>
       )}
 
       {/* Pantalla Ganador de Trivia */}
