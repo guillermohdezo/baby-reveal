@@ -1,6 +1,6 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
+
 
 function GuestInterface() {
 
@@ -31,21 +31,195 @@ function GuestInterface() {
   const [revealedGender, setRevealedGender] = useState(null);
   const [triviaWinnerData, setTriviaWinnerData] = useState(null);
   const [guestId, setGuestId] = useState(null);
+  const [drawingResults, setDrawingResults] = useState(null);
   const [emojis] = useState(['🎉', '😂', '😍', '👏', '😮', '😎', '🥳', '😭', '🤩', '😱']);
   const messagesEndRef = useRef(null);
-
-
-
+  // Listener para inicio de trivia
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!socket) return;
+    const handler = (data) => {
+      setCurrentTrivia({
+        question: data.question,
+        type: data.type,
+        points: data.points,
+        id: data.questionId,
+        options: data.options || null
+      });
+      setEventState('trivia-active');
+      setTriviaPersonalResult(null);
+      setResponseSubmitted(false);
+      setTriviaAnswer('');
+    };
+    socket.on('trivia-question-started', handler);
+    return () => {
+      socket.off('trivia-question-started', handler);
+    };
+  }, [socket]);
 
+  // Listener para puntos ganados en el minijuego de dibujo
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data) => {
+      if (typeof data.totalScore === 'number') {
+        setTotalScore(data.totalScore);
+      }
+    };
+    socket.on('drawing-points-awarded', handler);
+    return () => {
+      socket.off('drawing-points-awarded', handler);
+    };
+  }, [socket]);
+
+  // Listener para resultado personal de trivia
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data) => {
+      setTriviaPersonalResult({
+        isCorrect: data.isCorrect,
+        correctAnswer: data.correctAnswer,
+        points: data.points
+      });
+      if (typeof data.totalScore === 'number') {
+        setTotalScore(data.totalScore);
+      }
+      setResponseSubmitted(false);
+      setCurrentTrivia(null);
+      setEventState('trivia-results');
+    };
+    socket.on('trivia-personal-result', handler);
+    return () => {
+      socket.off('trivia-personal-result', handler);
+    };
+  }, [socket]);
+
+  // Listener para inicio de votación final (niño o niña)
+  useEffect(() => {
+    if (!socket) return;
+    const handler = () => {
+      setEventState('voting-active');
+      setCurrentVote(null);
+      setHasVoted(false);
+    };
+    socket.on('voting-started', handler);
+    return () => {
+      socket.off('voting-started', handler);
+    };
+  }, [socket]);
+
+  // Listener para confirmación de voto final
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data) => {
+      setCurrentVote(data.vote);
+      setHasVoted(true);
+    };
+    socket.on('vote-confirmed', handler);
+    return () => {
+      socket.off('vote-confirmed', handler);
+    };
+  }, [socket]);
+
+  // Listener para actualización de votos en tiempo real
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data) => {
+      setVotingData(data);
+    };
+    socket.on('votes-update', handler);
+    return () => {
+      socket.off('votes-update', handler);
+    };
+  }, [socket]);
+
+  // Listener para revelación de género
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data) => {
+      setRevealedGender(data.gender);
+      setEventState('revealed');
+    };
+    socket.on('gender-revealed', handler);
+    return () => {
+      socket.off('gender-revealed', handler);
+    };
+  }, [socket]);
+
+  // Listener para mostrar ganador final de trivia
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data) => {
+      setTriviaWinnerData(data);
+      setEventState('trivia-winner');
+    };
+    socket.on('trivia-winner-revealed', handler);
+    return () => {
+      socket.off('trivia-winner-revealed', handler);
+    };
+  }, [socket]);
+  // Restaurar sesión de invitado si existe en localStorage
+  // Restaurar sesión de invitado si existe en localStorage
+  useEffect(() => {
+    const savedGuestData = localStorage.getItem('guestData');
+    if (savedGuestData) {
+      try {
+        const guestData = JSON.parse(savedGuestData);
+        if (guestData.guestId && guestData.name) {
+          setGuestId(guestData.guestId);
+          setGuestName(guestData.name);
+          setIsRegistered(true);
+        }
+      } catch (error) {
+        // Si hay error, limpiar localStorage corrupto
+        localStorage.removeItem('guestData');
+      }
+    }
+  }, []);
+
+  // Listener para resultados de votación de dibujos
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (data) => {
+      setEventState('drawing-results');
+      setDrawingResults(data); // Guardar resultados para mostrar puntos
+    };
+    socket.on('drawing-results', handler);
+    return () => {
+      socket.off('drawing-results', handler);
+    };
+  }, [socket]);
+
+  // Reenviar registro automáticamente si hay sesión restaurada y socket listo
+  useEffect(() => {
+    if (socket && guestId && guestName && isRegistered) {
+      socket.emit('register-guest', {
+        name: guestName,
+        guestId: guestId
+      });
+    }
+  }, [socket, guestId, guestName, isRegistered]);
+
+  // Handler para enviar emojis
+  const sendEmoji = (emoji) => {
+    if (socket && isRegistered) {
+      socket.emit('send-emoji', { emoji });
+    }
+  };
+
+  // Handler para enviar mensajes en el chat
+  const sendMessage = (e) => {
+    e.preventDefault();
+    if (newMessage.trim() && socket && isRegistered) {
+      socket.emit('send-message', { message: newMessage.trim() });
+      setNewMessage('');
+    }
+  };
+
+  // Handler para el registro de invitado
   const handleRegister = (e) => {
     e.preventDefault();
     if (guestName.trim() && socket) {
       const savedGuestData = localStorage.getItem('guestData');
       let guestId = null;
-      
       if (savedGuestData) {
         try {
           const guestData = JSON.parse(savedGuestData);
@@ -54,33 +228,111 @@ function GuestInterface() {
           console.error('Error parsing saved guest data:', error);
         }
       }
-      
-      socket.emit('register-guest', { 
-        name: guestName.trim(), 
-        guestId: guestId 
+      socket.emit('register-guest', {
+        name: guestName.trim(),
+        guestId: guestId
       });
     }
   };
 
-  const sendMessage = (e) => {
-    e.preventDefault();
-    if (newMessage.trim() && socket && isRegistered) {
-      console.log('Enviando mensaje:', newMessage.trim());
-      socket.emit('send-message', { message: newMessage.trim() });
-      setNewMessage('');
-    } else {
-      console.log('No se puede enviar mensaje. Registrado:', isRegistered, 'Socket:', !!socket, 'Mensaje:', newMessage.trim());
-    }
-  };
 
-  const sendEmoji = (emoji) => {
-    if (socket && isRegistered) {
-      console.log('Enviando emoji:', emoji);
-      socket.emit('send-emoji', { emoji });
-    } else {
-      console.log('No se puede enviar emoji. Registrado:', isRegistered, 'Socket:', !!socket);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Initialize socket connection
+  useEffect(() => {
+    // Only connect if not already connected
+    if (!socket) {
+      // Use relative path to work with proxy or same origin
+      const newSocket = io();
+      setSocket(newSocket);
+
+      // Clean up on unmount
+      return () => {
+        newSocket.disconnect();
+      };
     }
-  };
+  }, []);
+
+  // Register socket event listeners
+  useEffect(() => {
+    if (!socket) return;
+
+    // Escuchar el evento correcto del backend
+    socket.on('registration-success', (data) => {
+      setIsRegistered(true);
+      setGuestId(data.guestId);
+      setTotalScore(data.totalScore || 0);
+      // Guardar datos del invitado en localStorage
+      localStorage.setItem('guestData', JSON.stringify({ guestId: data.guestId, name: guestName }));
+    });
+
+    socket.on('registration-failed', (msg) => {
+      alert(msg || 'No se pudo registrar. Intenta con otro nombre.');
+    });
+
+    // Listener para mensajes nuevos
+    if (!socket) return;
+
+    // Listeners solo si socket existe
+    socket.on('registration-success', (data) => {
+      setIsRegistered(true);
+      setGuestId(data.guestId);
+      setTotalScore(data.totalScore || 0);
+      localStorage.setItem('guestData', JSON.stringify({ guestId: data.guestId, name: guestName }));
+    });
+
+    socket.on('registration-failed', (msg) => {
+      alert(msg || 'No se pudo registrar. Intenta con otro nombre.');
+    });
+
+    socket.on('new-message', (msg) => {
+      setMessages(prev => [...prev, msg]);
+    });
+
+    socket.on('new-emoji', (emojiData) => {
+      setFloatingEmojis(prev => [
+        ...prev,
+        { ...emojiData, id: Date.now() + Math.random() }
+      ]);
+      setTimeout(() => {
+        setFloatingEmojis(prev => prev.slice(1));
+      }, 2500);
+    });
+
+    socket.on('drawing-game-started', ({ prompt, duration }) => {
+      setDrawingPrompt(prompt);
+      setDrawingCountdown(duration);
+      setDrawingSubmitted(false);
+      setEventState('drawing-active');
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+    });
+
+    socket.on('drawing-countdown-update', (count) => {
+      setDrawingCountdown(count);
+    });
+
+    socket.on('drawing-voting-started', ({ drawings, prompt }) => {
+      setVotingDrawings(drawings || []);
+      setDrawingPrompt(prompt || null);
+      setEventState('drawing-voting');
+    });
+
+    return () => {
+      socket.off('registration-success');
+      socket.off('registration-failed');
+      socket.off('new-message');
+      socket.off('new-emoji');
+      socket.off('drawing-game-started');
+      socket.off('drawing-countdown-update');
+      socket.off('drawing-voting-started');
+    };
+  }, [socket, guestName]);
 
   const submitTriviaAnswer = (e) => {
     e.preventDefault();
@@ -91,9 +343,8 @@ function GuestInterface() {
   };
 
   const vote = (gender) => {
-    if (!hasVoted && socket) {
+    if (socket) {
       socket.emit('final-vote', { vote: gender });
-      setHasVoted(true);
     }
   };
 
@@ -168,9 +419,17 @@ function GuestInterface() {
   };
 
   const voteOnDrawing = (drawingId) => {
-    if (socket) {
-      socket.emit('vote-drawing', { drawingId });
-    }
+    if (!socket) return;
+    setMyVotes(prev => {
+      const newVotes = new Set(prev);
+      if (newVotes.has(drawingId)) {
+        newVotes.delete(drawingId);
+      } else {
+        newVotes.add(drawingId);
+      }
+      return newVotes;
+    });
+    socket.emit('vote-drawing', { drawingId });
   };
 
   const changeUser = () => {
@@ -281,9 +540,8 @@ function GuestInterface() {
               {eventState === 'trivia-winner' && '🏆 ¡Ganador!'}
             </strong>
           </div>
-          {totalScore > 0 && (
-            <div style={{ 
-              background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)', 
+          <div style={{ 
+            background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)', 
             color: 'white', 
             padding: '10px 20px', 
             borderRadius: '25px', 
@@ -294,7 +552,6 @@ function GuestInterface() {
           }}>
             🏆 Puntuación: {totalScore} puntos
           </div>
-        )}
       </div>
 
       {/* Trivia Activa */}
@@ -307,9 +564,9 @@ function GuestInterface() {
           {!triviaPersonalResult && !responseSubmitted ? (
             <form onSubmit={submitTriviaAnswer}>
               <div className="form-group">
-                {currentTrivia.type === 'multiple-choice' ? (
+                {currentTrivia.options && currentTrivia.type === 'multiple-choice' ? (
                   <div style={{ textAlign: 'left' }}>
-                    {currentTrivia.options && currentTrivia.options.map((option, index) => (
+                    {currentTrivia.options.map((option, index) => (
                       <label key={index} style={{
                         display: 'block',
                         margin: '15px 0',
@@ -439,8 +696,34 @@ function GuestInterface() {
         </div>
       )}
 
+
+      {/* Resultados del Minijuego de Dibujo - Solo para el usuario actual */}
+      {eventState === 'drawing-results' && drawingResults && (
+        (() => {
+          const myDrawingResult = drawingResults.scores && drawingResults.scores.find(r => r.guestId === guestId);
+          if (!myDrawingResult) return null;
+          return (
+            <div className="card" style={{ textAlign: 'center' }}>
+              <h2>🎨 Resultado de tu Dibujo</h2>
+              <div style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '10px', color: '#00b894' }}>
+                ¡Gracias por participar!
+              </div>
+              <div style={{ fontSize: '18px', marginBottom: '10px' }}>
+                Tema: <strong>"{drawingResults.prompt}"</strong>
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#6c5ce7', marginBottom: '10px' }}>
+                Puntos ganados: +{myDrawingResult.points}
+              </div>
+              <div style={{ fontSize: '14px', marginTop: '20px', opacity: 0.8 }}>
+                El administrador está mostrando los resultados en la pantalla principal
+              </div>
+            </div>
+          );
+        })()
+      )}
+
       {/* Esperando siguientes eventos */}
-      {(eventState === 'trivia-finished' || eventState === 'voting-finished' || eventState === 'drawing-results') && (
+      {(eventState === 'trivia-finished' || eventState === 'voting-finished' || (eventState === 'drawing-results' && !drawingResults)) && (
         <div className="card" style={{ textAlign: 'center' }}>
           <h2>⏳ Esperando...</h2>
           <div style={{ fontSize: '16px', opacity: 0.8 }}>
@@ -527,7 +810,7 @@ function GuestInterface() {
                 </button>
               </div>
               
-              <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
+              <div style={{ fontSize: '14px', color: 'rgba(0, 0, 0, 0.7)' }}>
                 💡 Haz clic y arrastra para dibujar. El dibujo se enviará automáticamente cuando termine el tiempo.
               </div>
             </div>
@@ -702,7 +985,7 @@ function GuestInterface() {
               <div style={{ color: '#00b894', fontWeight: '600', marginBottom: '10px' }}>
                 ✅ Has votado por: {currentVote === 'boy' ? '👦 NIÑO' : '👧 NIÑA'}
               </div>
-              <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>
+              <div style={{ color: 'rgba(0, 0, 0, 0.8)', fontSize: '14px' }}>
                 💡 Puedes cambiar tu voto haciendo clic en el otro círculo
               </div>
             </div>
