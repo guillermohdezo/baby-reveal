@@ -125,18 +125,7 @@ const AdminLogin = ({ onLogin }) => {
           </button>
         </form>
 
-        <div style={{ 
-          marginTop: '30px', 
-          padding: '15px',
-          background: '#f8f9fa',
-          borderRadius: '10px',
-          fontSize: '14px',
-          color: '#666'
-        }}>
-          <strong>💡 Nota:</strong> La contraseña por defecto es <code>admin123</code>
-          <br />
-          <small>Se puede cambiar con la variable ADMIN_PASSWORD</small>
-        </div>
+
       </div>
     </div>
   );

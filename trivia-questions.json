@@ -19,5 +19,18 @@
     "correctAnswer": "11",
     "points": 10,
     "type": "number"
+  },
+  {
+    "id": 1732185000000,
+    "question": "¿Cuál es el nombre más popular para bebés en 2024?",
+    "correctAnswer": "B",
+    "points": 15,
+    "type": "multiple-choice",
+    "options": [
+      "Santiago",
+      "Mateo", 
+      "Diego",
+      "Alejandro"
+    ]
   }
 ]

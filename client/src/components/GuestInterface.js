@@ -1,131 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react';
-import io from 'socket.io-client';
 
-const GuestInterface = () => {
-  const [socket, setSocket] = useState(null);
-  const [isRegistered, setIsRegistered] = useState(false);
-  const [guestName, setGuestName] = useState('');
-  const [guestId, setGuestId] = useState('');
-  const [eventState, setEventState] = useState('waiting');
+
+import React, { useState, useEffect, useRef } from 'react';
+
+function GuestInterface() {
+
+  // State and refs
   const [messages, setMessages] = useState([]);
+  const [socket, setSocket] = useState(null);
+  const [guestName, setGuestName] = useState('');
+  const [isRegistered, setIsRegistered] = useState(false);
   const [newMessage, setNewMessage] = useState('');
-  const [currentTrivia, setCurrentTrivia] = useState(null);
   const [triviaAnswer, setTriviaAnswer] = useState('');
-  const [triviaPersonalResult, setTriviaPersonalResult] = useState(null);
-  const [totalScore, setTotalScore] = useState(0);
-  const [votingData, setVotingData] = useState({ boy: { count: 0, names: [] }, girl: { count: 0, names: [] } });
+  const [currentTrivia, setCurrentTrivia] = useState(null);
   const [hasVoted, setHasVoted] = useState(false);
-  const [currentVote, setCurrentVote] = useState(null);
+  const [drawingSubmitted, setDrawingSubmitted] = useState(false);
+  const [drawingCountdown, setDrawingCountdown] = useState(0);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [canvasRef] = useState(() => React.createRef());
+  const [totalScore, setTotalScore] = useState(0);
+  const [eventState, setEventState] = useState('waiting');
   const [floatingEmojis, setFloatingEmojis] = useState([]);
+  const [votingData, setVotingData] = useState({ boy: { count: 0, names: [] }, girl: { count: 0, names: [] } });
+  const [currentVote, setCurrentVote] = useState(null);
+  const [responseSubmitted, setResponseSubmitted] = useState(false);
+  const [drawingPrompt, setDrawingPrompt] = useState(null);
+  const [votingDrawings, setVotingDrawings] = useState([]);
+  const [myVotes, setMyVotes] = useState(new Set());
+  const [triviaPersonalResult, setTriviaPersonalResult] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [revealedGender, setRevealedGender] = useState(null);
   const [triviaWinnerData, setTriviaWinnerData] = useState(null);
+  const [guestId, setGuestId] = useState(null);
+  const [emojis] = useState(['🎉', '😂', '😍', '👏', '😮', '😎', '🥳', '😭', '🤩', '😱']);
   const messagesEndRef = useRef(null);
 
-  const emojis = ['😍', '🥰', '😂', '🤗', '😮', '🎉', '💕', '👶', '🍼', '🎈'];
 
-  useEffect(() => {
-    const newSocket = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001');
-    setSocket(newSocket);
-
-    newSocket.on('new-message', (message) => {
-      setMessages(prev => [...prev, message]);
-    });
-
-    newSocket.on('new-emoji', (emojiData) => {
-      const id = Date.now() + Math.random();
-      setFloatingEmojis(prev => [...prev, { ...emojiData, id }]);
-      
-      // Remover emoji después de 3 segundos
-      setTimeout(() => {
-        setFloatingEmojis(prev => prev.filter(e => e.id !== id));
-      }, 3000);
-    });
-
-    // Eventos del nuevo flujo
-    newSocket.on('trivia-question-started', (trivia) => {
-      setCurrentTrivia(trivia);
-      setTriviaAnswer('');
-      setTriviaPersonalResult(null);
-      setEventState('trivia-active');
-    });
-
-    newSocket.on('trivia-personal-result', (result) => {
-      setTriviaPersonalResult(result);
-      // Actualizar puntuación total
-      if (result.isCorrect) {
-        setTotalScore(prev => prev + result.points);
-      }
-    });
-
-    newSocket.on('trivia-question-results', (results) => {
-      setEventState('trivia-results');
-    });
-
-    newSocket.on('trivia-final-results', (results) => {
-      setCurrentTrivia(null);
-      setEventState('trivia-finished');
-    });
-
-    newSocket.on('voting-started', () => {
-      setEventState('voting-active');
-      setHasVoted(false);
-      setCurrentVote(null);
-      setVotingData({ boy: { count: 0, names: [] }, girl: { count: 0, names: [] } });
-    });
-
-    newSocket.on('votes-update', (votes) => {
-      setVotingData(votes);
-    });
-
-    newSocket.on('vote-confirmed', (data) => {
-      setCurrentVote(data.vote);
-      setHasVoted(true);
-    });
-
-    newSocket.on('voting-final-results', (results) => {
-      setEventState('voting-finished');
-    });
-
-    newSocket.on('countdown-started', () => {
-      setEventState('countdown');
-      setCountdown(5);
-      
-      const countdownInterval = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) {
-            clearInterval(countdownInterval);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    });
-
-    newSocket.on('gender-revealed', (data) => {
-      setEventState('revealed');
-      setRevealedGender(data.gender);
-    });
-
-    newSocket.on('trivia-winner-revealed', (data) => {
-      setEventState('trivia-winner');
-      setTriviaWinnerData(data);
-    });
-
-    newSocket.on('event-reset', () => {
-      setEventState('waiting');
-      setCurrentTrivia(null);
-      setTriviaPersonalResult(null);
-      setTotalScore(0);
-      setHasVoted(false);
-      setCurrentVote(null);
-      setCountdown(null);
-      setRevealedGender(null);
-      setVotingData({ boy: { count: 0, names: [] }, girl: { count: 0, names: [] } });
-    });
-
-    return () => newSocket.close();
-  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -134,25 +43,42 @@ const GuestInterface = () => {
   const handleRegister = (e) => {
     e.preventDefault();
     if (guestName.trim() && socket) {
-      socket.emit('register-guest', { name: guestName.trim() });
-      socket.on('registration-success', (data) => {
-        setGuestId(data.guestId);
-        setIsRegistered(true);
+      const savedGuestData = localStorage.getItem('guestData');
+      let guestId = null;
+      
+      if (savedGuestData) {
+        try {
+          const guestData = JSON.parse(savedGuestData);
+          guestId = guestData.guestId;
+        } catch (error) {
+          console.error('Error parsing saved guest data:', error);
+        }
+      }
+      
+      socket.emit('register-guest', { 
+        name: guestName.trim(), 
+        guestId: guestId 
       });
     }
   };
 
   const sendMessage = (e) => {
     e.preventDefault();
-    if (newMessage.trim() && socket) {
+    if (newMessage.trim() && socket && isRegistered) {
+      console.log('Enviando mensaje:', newMessage.trim());
       socket.emit('send-message', { message: newMessage.trim() });
       setNewMessage('');
+    } else {
+      console.log('No se puede enviar mensaje. Registrado:', isRegistered, 'Socket:', !!socket, 'Mensaje:', newMessage.trim());
     }
   };
 
   const sendEmoji = (emoji) => {
-    if (socket) {
+    if (socket && isRegistered) {
+      console.log('Enviando emoji:', emoji);
       socket.emit('send-emoji', { emoji });
+    } else {
+      console.log('No se puede enviar emoji. Registrado:', isRegistered, 'Socket:', !!socket);
     }
   };
 
@@ -169,6 +95,103 @@ const GuestInterface = () => {
       socket.emit('final-vote', { vote: gender });
       setHasVoted(true);
     }
+  };
+
+  // Funciones del minijuego de dibujo
+  const initializeCanvas = () => {
+    if (!canvasRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    // Configurar canvas
+    canvas.width = 400;
+    canvas.height = 300;
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  };
+
+  const startDrawing = (e) => {
+    if (drawingSubmitted || drawingCountdown <= 0) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setIsDrawing(true);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing || drawingSubmitted || drawingCountdown <= 0) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    if (drawingSubmitted || drawingCountdown <= 0) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const submitDrawing = () => {
+    if (!canvasRef.current || drawingSubmitted) return;
+    
+    const canvas = canvasRef.current;
+    const dataURL = canvas.toDataURL('image/png');
+    
+    socket.emit('submit-drawing', { drawing: dataURL });
+    setDrawingSubmitted(true);
+  };
+
+  const voteOnDrawing = (drawingId) => {
+    if (socket) {
+      socket.emit('vote-drawing', { drawingId });
+    }
+  };
+
+  const changeUser = () => {
+    // Limpiar datos guardados
+    localStorage.removeItem('guestData');
+    
+    // Resetear estado
+    setIsRegistered(false);
+    setGuestId(null);
+    setGuestName('');
+    setTotalScore(0);
+    setTriviaPersonalResult(null);
+    setResponseSubmitted(false);
+    setTriviaAnswer('');
+    setCurrentVote(null);
+    setHasVoted(false);
+    setMessages([]);
+    setEventState('waiting');
+    
+    // Recargar la página para reiniciar completamente
+    window.location.reload();
   };
 
   if (!isRegistered) {
@@ -200,41 +223,67 @@ const GuestInterface = () => {
   }
 
   return (
-    <div className="container">
-      {/* Emojis flotantes */}
-      {floatingEmojis.map((emoji) => (
-        <div
-          key={emoji.id}
-          className="floating-emoji"
-          style={{
-            left: `${emoji.x}%`,
-            top: `${emoji.y}%`,
-          }}
-        >
-          {emoji.emoji}
-        </div>
-      ))}
+    <div style={{ position: 'relative', minHeight: '100vh', zIndex: 1 }}>
+      <div className="animated-bg" />
+      <div className="container">
+        {/* Emojis flotantes */}
+        {floatingEmojis.map((emoji) => (
+          <div
+            key={emoji.id}
+            className="floating-emoji"
+            style={{
+              left: `${emoji.x}%`,
+              top: `${emoji.y}%`,
+            }}
+          >
+            {emoji.emoji}
+          </div>
+        ))}
 
-      <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-        <h1 style={{ color: 'white', marginBottom: '10px' }}>
-          ¡Hola {guestName}! 👋
-        </h1>
-        <div style={{ color: 'rgba(255,255,255,0.8)', marginBottom: '10px' }}>
-          Estado del evento: <strong>
-            {eventState === 'waiting' && 'Esperando...'}
-            {eventState === 'trivia-active' && '🧠 Trivia en curso'}
-            {eventState === 'trivia-results' && '📊 Viendo resultados'}
-            {eventState === 'trivia-finished' && '🏆 Trivia terminada'}
-            {eventState === 'voting-active' && '🗳️ Votación activa'}
-            {eventState === 'voting-finished' && '📊 Votación terminada'}
-            {eventState === 'countdown' && '⏰ Cuenta regresiva'}
-            {eventState === 'revealed' && '🎊 ¡Revelado!'}
-            {eventState === 'trivia-winner' && '🏆 ¡Ganador!'}
-          </strong>
-        </div>
-        {totalScore > 0 && (
-          <div style={{ 
-            background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)', 
+        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <div></div>
+            <h1 style={{ color: 'white', margin: 0 }}>
+              ¡Hola {guestName}! 👋
+            </h1>
+            <button
+              onClick={changeUser}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                color: 'white',
+                padding: '8px 12px',
+                borderRadius: '20px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseOver={(e) => e.target.style.background = 'rgba(255,255,255,0.3)'}
+              onMouseOut={(e) => e.target.style.background = 'rgba(255,255,255,0.2)'}
+              title="Cambiar a otro usuario"
+            >
+              👤 Cambiar Usuario
+            </button>
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.8)', marginBottom: '10px' }}>
+            Estado del evento: <strong>
+              {eventState === 'waiting' && 'Esperando...'}
+              {eventState === 'trivia-active' && '🧠 Trivia en curso'}
+              {eventState === 'trivia-results' && '📊 Viendo resultados'}
+              {eventState === 'trivia-finished' && '🏆 Trivia terminada'}
+              {eventState === 'voting-active' && '🗳️ Votación activa'}
+              {eventState === 'voting-finished' && '📊 Votación terminada'}
+              {eventState === 'drawing-active' && '🎨 Dibujando'}
+              {eventState === 'drawing-voting' && '🖼️ Votando dibujos'}
+              {eventState === 'drawing-results' && '🏆 Resultados dibujo'}
+              {eventState === 'countdown' && '⏰ Cuenta regresiva'}
+              {eventState === 'revealed' && '🎊 ¡Revelado!'}
+              {eventState === 'trivia-winner' && '🏆 ¡Ganador!'}
+            </strong>
+          </div>
+          {totalScore > 0 && (
+            <div style={{ 
+              background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)', 
             color: 'white', 
             padding: '10px 20px', 
             borderRadius: '25px', 
@@ -255,22 +304,82 @@ const GuestInterface = () => {
           <div style={{ marginBottom: '20px', fontSize: '18px', fontWeight: '500' }}>
             {currentTrivia.question}
           </div>
-          {!triviaPersonalResult ? (
+          {!triviaPersonalResult && !responseSubmitted ? (
             <form onSubmit={submitTriviaAnswer}>
               <div className="form-group">
-                <input
-                  type={currentTrivia.type}
-                  className="form-input"
-                  value={triviaAnswer}
-                  onChange={(e) => setTriviaAnswer(e.target.value)}
-                  placeholder="Tu respuesta..."
-                  required
-                />
+                {currentTrivia.type === 'multiple-choice' ? (
+                  <div style={{ textAlign: 'left' }}>
+                    {currentTrivia.options && currentTrivia.options.map((option, index) => (
+                      <label key={index} style={{
+                        display: 'block',
+                        margin: '15px 0',
+                        padding: '15px',
+                        background: triviaAnswer === String.fromCharCode(65 + index)
+                          ? 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)'
+                          : 'rgba(255,255,255,0.1)',
+                        color: 'white',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                        fontSize: '16px',
+                        border: triviaAnswer === String.fromCharCode(65 + index)
+                          ? '2px solid #6c5ce7'
+                          : '2px solid transparent',
+                        transition: 'all 0.2s'
+                      }}>
+                        <input
+                          type="radio"
+                          name="trivia-option"
+                          value={String.fromCharCode(65 + index)}
+                          checked={triviaAnswer === String.fromCharCode(65 + index)}
+                          onChange={() => setTriviaAnswer(String.fromCharCode(65 + index))}
+                          style={{ marginRight: '10px' }}
+                        />
+                        <span style={{ fontWeight: 'bold', marginRight: '8px' }}>{String.fromCharCode(65 + index)}.</span>
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={triviaAnswer}
+                    onChange={(e) => setTriviaAnswer(e.target.value)}
+                    placeholder="Tu respuesta"
+                    required
+                  />
+                )}
               </div>
               <button type="submit" className="btn btn-success">
                 Enviar Respuesta
               </button>
             </form>
+          ) : responseSubmitted ? (
+            // Estado de esperando resultados
+            <div style={{ textAlign: 'center', padding: '30px' }}>
+              <div style={{ 
+                fontSize: '24px', 
+                marginBottom: '15px',
+                color: '#28a745',
+                animation: 'pulse 1.5s ease-in-out infinite'
+              }}>
+                ✅ Respuesta enviada
+              </div>
+              <div style={{ 
+                fontSize: '16px', 
+                color: 'rgba(255,255,255,0.8)',
+                marginBottom: '20px' 
+              }}>
+                Esperando a que el administrador muestre los resultados...
+              </div>
+              <div style={{ 
+                fontSize: '14px', 
+                color: 'rgba(255,255,255,0.6)' 
+              }}>
+                🔄 Los puntos se calcularán cuando se revelen los resultados
+              </div>
+            </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '20px' }}>
               <div style={{ 
@@ -331,14 +440,215 @@ const GuestInterface = () => {
       )}
 
       {/* Esperando siguientes eventos */}
-      {(eventState === 'trivia-finished' || eventState === 'voting-finished') && (
+      {(eventState === 'trivia-finished' || eventState === 'voting-finished' || eventState === 'drawing-results') && (
         <div className="card" style={{ textAlign: 'center' }}>
           <h2>⏳ Esperando...</h2>
           <div style={{ fontSize: '16px', opacity: 0.8 }}>
             {eventState === 'trivia-finished' && 'Trivia terminada. Esperando el siguiente evento...'}
             {eventState === 'voting-finished' && 'Votación terminada. Esperando el siguiente evento...'}
+            {eventState === 'drawing-results' && 'Minijuego de dibujo terminado. Esperando el siguiente evento...'}
           </div>
         </div>
+      )}
+
+      {/* Minijuego de Dibujo Activo */}
+      {eventState === 'drawing-active' && drawingPrompt && (
+        <div className="card">
+          <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>
+            🎨 Minijuego de Dibujo
+          </h2>
+          
+          <div style={{ 
+            background: 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)',
+            color: 'white',
+            padding: '15px',
+            borderRadius: '10px',
+            textAlign: 'center',
+            marginBottom: '20px'
+          }}>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '10px' }}>
+              Dibuja: "{drawingPrompt}"
+            </div>
+            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+              ⏰ Tiempo restante: {drawingCountdown}s
+            </div>
+          </div>
+
+          {!drawingSubmitted ? (
+            <div style={{ textAlign: 'center' }}>
+              <canvas
+                ref={canvasRef}
+                style={{
+                  border: '2px solid #ddd',
+                  borderRadius: '8px',
+                  cursor: drawingCountdown > 0 ? 'crosshair' : 'not-allowed',
+                  marginBottom: '15px',
+                  maxWidth: '100%',
+                  background: 'white'
+                }}
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+              />
+              
+              <div style={{ marginBottom: '15px' }}>
+                <button
+                  onClick={clearCanvas}
+                  disabled={drawingSubmitted || drawingCountdown <= 0}
+                  style={{
+                    background: '#e74c3c',
+                    color: 'white',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '5px',
+                    cursor: drawingSubmitted || drawingCountdown <= 0 ? 'not-allowed' : 'pointer',
+                    marginRight: '10px',
+                    opacity: drawingSubmitted || drawingCountdown <= 0 ? 0.5 : 1
+                  }}
+                >
+                  🗑️ Limpiar
+                </button>
+                
+                <button
+                  onClick={submitDrawing}
+                  disabled={drawingSubmitted || drawingCountdown <= 0}
+                  style={{
+                    background: '#00b894',
+                    color: 'white',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '5px',
+                    cursor: drawingSubmitted || drawingCountdown <= 0 ? 'not-allowed' : 'pointer',
+                    opacity: drawingSubmitted || drawingCountdown <= 0 ? 0.5 : 1
+                  }}
+                >
+                  📤 Enviar Dibujo
+                </button>
+              </div>
+              
+              <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
+                💡 Haz clic y arrastra para dibujar. El dibujo se enviará automáticamente cuando termine el tiempo.
+              </div>
+            </div>
+          ) : (
+            <div style={{ 
+              textAlign: 'center',
+              padding: '30px',
+              background: 'rgba(0, 184, 148, 0.1)',
+              borderRadius: '10px'
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '15px' }}>✅</div>
+              <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '10px' }}>
+                ¡Dibujo enviado!
+              </div>
+              <div style={{ fontSize: '14px', opacity: 0.8 }}>
+                Esperando a que todos terminen de dibujar...
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Votación de Dibujos */}
+      {eventState === 'drawing-voting' && (
+        votingDrawings && votingDrawings.length > 0 ? (
+        <div className="card">
+          <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>
+            🖼️ Vota por los Mejores Dibujos
+          </h2>
+          
+          <div style={{ 
+            textAlign: 'center',
+            marginBottom: '20px',
+            fontSize: '16px',
+            color: 'rgba(255,255,255,0.8)'
+          }}>
+            Tema: "{drawingPrompt}" - {votingDrawings.length} dibujos para votar
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: '20px',
+            marginBottom: '20px'
+          }}>
+            {votingDrawings.map((drawing, index) => (
+              <div key={drawing.id} style={{ 
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '15px',
+                padding: '15px',
+                textAlign: 'center',
+                border: '2px solid rgba(255,255,255,0.1)'
+              }}>
+                <div style={{
+                  background: 'white',
+                  padding: '8px',
+                  borderRadius: '8px',
+                  marginBottom: '15px'
+                }}>
+                  <img
+                    src={drawing.drawing}
+                    alt={`Dibujo de ${drawing.guestName}`}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '150px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px'
+                    }}
+                  />
+                </div>
+                
+                <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>
+                  por: {drawing.guestName}
+                </div>
+
+                <button
+                  onClick={() => voteOnDrawing(drawing.id)}
+                  style={{
+                    background: myVotes.has(drawing.id) 
+                      ? 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)'
+                      : 'linear-gradient(135deg, #00b894 0%, #00a085 100%)',
+                    color: 'white',
+                    border: myVotes.has(drawing.id) ? '2px solid #e74c3c' : 'none',
+                    padding: '8px 16px',
+                    borderRadius: '20px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
+                    transition: 'all 0.3s ease',
+                    width: '100%'
+                  }}
+                  onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
+                  onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
+                >
+                  {myVotes.has(drawing.id) ? '❌ Remover voto' : '👍 Votar'}
+                </button>
+              </div>
+            ))}
+          </div>
+          
+          <div style={{ 
+            fontSize: '12px', 
+            opacity: 0.6, 
+            textAlign: 'center',
+            fontStyle: 'italic'
+          }}>
+            Puedes votar por múltiples dibujos
+          </div>
+        </div>
+        ) : (
+          <div className="card" style={{ textAlign: 'center' }}>
+            <h2>🖼️ Votación de Dibujos</h2>
+            <div style={{ fontSize: '18px', marginBottom: '20px' }}>
+              No hay dibujos disponibles para votar
+            </div>
+            <div style={{ fontSize: '14px', opacity: 0.7 }}>
+              Esperando a que se procesen los dibujos...
+            </div>
+          </div>
+        )
       )}
 
       {/* Votación final */}
@@ -424,7 +734,7 @@ const GuestInterface = () => {
             {revealedGender === 'boy' ? '👦 ¡ES UN NIÑO! 👦' : '👧 ¡ES UNA NIÑA! 👧'}
           </div>
           <div style={{ fontSize: '24px', color: 'white', marginTop: '20px' }}>
-            🎉 ¡Felicidades a los futuros papás! 🎉
+            🎉 ¡Felicidades a America y Guillermo! 🎉
           </div>
         </div>
       )}
@@ -487,7 +797,7 @@ const GuestInterface = () => {
               </div>
 
               <div style={{ fontSize: '20px', opacity: 0.9, marginTop: '20px' }}>
-                👑 ¡Eres el más inteligente del grupo! 👑
+                👑 ¡Felicidades! 👑
               </div>
             </>
           ) : (
@@ -525,7 +835,7 @@ const GuestInterface = () => {
                 🏆 Puntuación ganadora: {triviaWinnerData.winner?.totalScore || 0} puntos
                 {triviaWinnerData.winner && (
                   <div style={{ fontSize: '16px', marginTop: '8px', opacity: 0.8 }}>
-                    Trivia: {triviaWinnerData.winner.triviaPoints} + Adivinanza: {triviaWinnerData.winner.genderPoints}
+                    Trivia: {triviaWinnerData.winner.triviaPoints} + Revelacion: {triviaWinnerData.winner.genderPoints}
                   </div>
                 )}
               </div>
@@ -549,8 +859,8 @@ const GuestInterface = () => {
         </div>
       )}
 
-      {/* Chat y Emojis - Solo si no está en countdown, revelación o ganador */}
-      {!['countdown', 'revealed', 'trivia-winner'].includes(eventState) && (
+      {/* Chat y Emojis - Disponible excepto en momentos climáticos */}
+      {!['countdown', 'revealed', 'trivia-winner', 'drawing-active', 'drawing-voting'].includes(eventState) && (
         <>
           {/* Emojis */}
           <div className="card">
@@ -571,11 +881,46 @@ const GuestInterface = () => {
           {/* Chat */}
           <div className="card">
             <h3>💬 Chat en Vivo</h3>
+            {eventState === 'trivia-active' && (
+              <div style={{
+                background: 'rgba(255, 193, 7, 0.1)',
+                border: '1px solid rgba(255, 193, 7, 0.3)',
+                borderRadius: '8px',
+                padding: '10px',
+                marginBottom: '15px',
+                fontSize: '14px',
+                color: '#856404'
+              }}>
+                ⚠️ <strong>Trivia activa:</strong> Los mensajes que contengan respuestas serán censurados automáticamente.
+              </div>
+            )}
             <div className="chat-container">
               <div className="chat-messages">
                 {messages.map((msg) => (
-                  <div key={msg.id} className="chat-message">
+                  <div 
+                    key={msg.id} 
+                    className={`chat-message ${msg.isWinner ? 'winner-message' : ''}`}
+                    style={{
+                      background: msg.isWinner ? undefined : 
+                                 msg.isSystem ? 'rgba(40, 167, 69, 0.1)' : 
+                                 msg.censurado ? 'rgba(255, 193, 7, 0.1)' : '#f8f9fa',
+                      borderLeft: msg.isWinner ? undefined :
+                                 msg.isSystem ? '4px solid #28a745' :
+                                 msg.censurado ? '4px solid #ffc107' : '4px solid #74b9ff',
+                      fontStyle: msg.isSystem ? 'italic' : 'normal'
+                    }}
+                  >
                     <strong>{msg.name}:</strong> {msg.message}
+                    {msg.censurado && (
+                      <span style={{ 
+                        marginLeft: '8px', 
+                        fontSize: '12px', 
+                        color: '#ffc107',
+                        fontWeight: 'bold' 
+                      }}>
+                        📝 (censurado)
+                      </span>
+                    )}
                     <span style={{ float: 'right', fontSize: '12px', color: '#666' }}>
                       {msg.timestamp}
                     </span>
@@ -599,8 +944,11 @@ const GuestInterface = () => {
           </div>
         </>
       )}
+      </div>
     </div>
+
   );
-};
+}
 
 export default GuestInterface;
+

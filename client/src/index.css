@@ -131,6 +131,18 @@ body {
   border-left: 4px solid #74b9ff;
 }
 
+.chat-message.winner-message {
+  background: linear-gradient(135deg, #ffd700, #ffeb3b);
+  border-left: 4px solid #ff6b6b;
+  font-weight: bold;
+  animation: celebration 2s ease-in-out;
+}
+
+@keyframes celebration {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
 .chat-input-container {
   display: flex;
   padding: 10px;
@@ -364,4 +376,141 @@ body {
   padding: 15px;
   margin-bottom: 10px;
   border-left: 4px solid #74b9ff;
+}
+
+/* Animación pulse para el estado de respuesta enviada */
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Animación fadeIn para mensajes de confirmación */
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Estilos del minijuego de dibujo */
+.drawing-canvas {
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  cursor: crosshair;
+  margin-bottom: 15px;
+  max-width: 100%;
+  background: white;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.drawing-canvas:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.drawing-timer {
+  background: linear-gradient(135deg, #e17055 0%, #d63031 100%);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 18px;
+  display: inline-block;
+  margin-bottom: 15px;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.drawing-prompt {
+  background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+  color: white;
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+  margin-bottom: 20px;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.drawing-controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.drawing-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 5px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.drawing-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+.drawing-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.drawing-btn-clear {
+  background: #e74c3c;
+  color: white;
+}
+
+.drawing-btn-submit {
+  background: #00b894;
+  color: white;
+}
+
+.drawing-submitted {
+  text-align: center;
+  padding: 30px;
+  background: rgba(0, 184, 148, 0.1);
+  border-radius: 10px;
+  border: 2px solid rgba(0, 184, 148, 0.3);
+}
+
+.drawing-voting-image {
+  max-width: 300px;
+  max-height: 225px;
+  border: 2px solid #ddd;
+  border-radius: 5px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.drawing-vote-btn {
+  background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  transition: all 0.3s ease;
+}
+
+.drawing-vote-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
 }

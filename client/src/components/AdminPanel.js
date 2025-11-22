@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
 import AdminLogin from './AdminLogin';
@@ -13,19 +13,27 @@ const AdminPanel = () => {
     question: '',
     correctAnswer: '',
     points: 10,
-    type: 'text'
+    type: 'text',
+    options: ['', '', '', '']
   });
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [babyGender, setBabyGender] = useState('');
+  const [genderMessage, setGenderMessage] = useState('');
   const [eventStatus, setEventStatus] = useState({});
+  // Popup para confirmar revelación de género
+  const [showGenderPopup, setShowGenderPopup] = useState(false);
   const [triviaResponses, setTriviaResponses] = useState(0);
   const [usedQuestions, setUsedQuestions] = useState(new Set());
+  const [drawingPrompts, setDrawingPrompts] = useState([]);
+  const [newPrompt, setNewPrompt] = useState('');
+  const [drawingDuration, setDrawingDuration] = useState(120);
 
   const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
 
   // Verificar autenticación al cargar
   useEffect(() => {
     const savedPassword = localStorage.getItem('adminPassword');
+    console.log('Contraseña guardada encontrada:', savedPassword ? 'presente' : 'ausente');
     if (savedPassword) {
       setAdminPassword(savedPassword);
       setIsAuthenticated(true);
@@ -33,14 +41,10 @@ const AdminPanel = () => {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !adminPassword) return;
+    
     const newSocket = io(API_BASE);
     setSocket(newSocket);
-
-    // Cargar datos iniciales
-    loadTriviaQuestions();
-    loadGender();
-    loadStatus();
 
     newSocket.on('guest-update', (guestList) => {
       setGuests(guestList);
@@ -56,19 +60,33 @@ const AdminPanel = () => {
     });
 
     return () => newSocket.close();
-  }, []);
+  }, [isAuthenticated, adminPassword]);
 
   // Actualizar estado cada 2 segundos para mantener información actualizada
   useEffect(() => {
-    const interval = setInterval(() => {
-      loadStatus();
+    if (!isAuthenticated || !adminPassword) return;
+    
+    const interval = setInterval(async () => {
+      if (!adminPassword) return;
+      try {
+        const response = await axios({
+          method: 'get',
+          url: `${API_BASE}/api/status`,
+          headers: {
+            'x-admin-password': adminPassword
+          }
+        });
+        setEventStatus(response.data);
+      } catch (error) {
+        console.error('Error cargando estado en intervalo:', error);
+      }
     }, 2000);
     
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, adminPassword, API_BASE]);
 
   // Helper para hacer peticiones autenticadas
-  const authenticatedRequest = (config) => {
+  const authenticatedRequest = useCallback((config) => {
     return {
       ...config,
       headers: {
@@ -76,25 +94,30 @@ const AdminPanel = () => {
         'x-admin-password': adminPassword
       }
     };
-  };
+  }, [adminPassword]);
 
   const handleLogin = (password) => {
+    console.log('handleLogin llamado con contraseña:', password ? 'presente' : 'ausente');
+    localStorage.setItem('adminPassword', password);
     setAdminPassword(password);
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('adminPassword');
     setIsAuthenticated(false);
     setAdminPassword('');
-  };
+  }, []);
 
-  const loadTriviaQuestions = async () => {
+  const loadTriviaQuestions = useCallback(async () => {
+    console.log('loadTriviaQuestions llamado, adminPassword:', adminPassword ? 'presente' : 'ausente');
+    if (!adminPassword) return;
     try {
       const response = await axios(authenticatedRequest({
         method: 'get',
         url: `${API_BASE}/api/trivia`
       }));
+      console.log('Preguntas cargadas exitosamente:', response.data.length);
       setTriviaQuestions(response.data);
     } catch (error) {
       console.error('Error cargando preguntas:', error);
@@ -102,9 +125,10 @@ const AdminPanel = () => {
         handleLogout();
       }
     }
-  };
+  }, [adminPassword, API_BASE, authenticatedRequest, handleLogout]);
 
-  const loadGender = async () => {
+  const loadGender = useCallback(async () => {
+    if (!adminPassword) return;
     try {
       const response = await axios(authenticatedRequest({
         method: 'get',
@@ -117,14 +141,17 @@ const AdminPanel = () => {
         handleLogout();
       }
     }
-  };
+  }, [adminPassword, API_BASE, authenticatedRequest, handleLogout]);
 
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
+    console.log('loadStatus llamado, adminPassword:', adminPassword ? 'presente' : 'ausente');
+    if (!adminPassword) return;
     try {
       const response = await axios(authenticatedRequest({
         method: 'get',
         url: `${API_BASE}/api/status`
       }));
+      console.log('Estado cargado exitosamente:', response.data);
       setEventStatus(response.data);
     } catch (error) {
       console.error('Error cargando estado:', error);
@@ -132,7 +159,34 @@ const AdminPanel = () => {
         handleLogout();
       }
     }
-  };
+  }, [adminPassword, API_BASE, authenticatedRequest, handleLogout]);
+
+  // Función para cargar prompts de dibujo
+  const loadDrawingPrompts = useCallback(async () => {
+    if (!adminPassword) return;
+    try {
+      const response = await axios({
+        method: 'get',
+        url: `${API_BASE}/api/drawing-prompts`,
+        headers: {
+          'x-admin-password': adminPassword
+        }
+      });
+      setDrawingPrompts(response.data);
+    } catch (error) {
+      console.error('Error cargando prompts:', error);
+    }
+  }, [adminPassword]);
+
+  // Cargar datos iniciales cuando esté autenticado
+  useEffect(() => {
+    if (!isAuthenticated || !adminPassword) return;
+    
+    loadTriviaQuestions();
+    loadGender();
+    loadStatus();
+    loadDrawingPrompts();
+  }, [isAuthenticated, adminPassword, loadTriviaQuestions, loadGender, loadStatus, loadDrawingPrompts]);
 
   const saveQuestion = async (e) => {
     e.preventDefault();
@@ -148,7 +202,8 @@ const AdminPanel = () => {
         question: '',
         correctAnswer: '',
         points: 10,
-        type: 'text'
+        type: 'text',
+        options: ['', '', '', '']
       });
       
       loadTriviaQuestions();
@@ -163,7 +218,8 @@ const AdminPanel = () => {
       question: question.question,
       correctAnswer: question.correctAnswer,
       points: question.points,
-      type: question.type
+      type: question.type,
+      options: question.options || ['', '', '', '']
     });
   };
 
@@ -178,12 +234,32 @@ const AdminPanel = () => {
     }
   };
 
-  const saveGender = async () => {
+  const handleGenderSelect = async (gender) => {
+    setBabyGender(gender);
+    
     try {
-      await axios.post(`${API_BASE}/api/gender`, { gender: babyGender });
-      // Género guardado exitosamente
+      await axios({
+        method: 'post',
+        url: `${API_BASE}/api/gender`,
+        data: { gender },
+        headers: {
+          'x-admin-password': adminPassword
+        }
+      });
+      const genderText = gender === 'boy' ? 'Niño 👦' : 'Niña 👧';
+      setGenderMessage(`✓ Género cambiado a ${genderText}`);
+      
+      // Ocultar mensaje después de 3 segundos
+      setTimeout(() => {
+        setGenderMessage('');
+      }, 3000);
     } catch (error) {
       console.error('Error guardando género:', error);
+      setGenderMessage('❌ Error al guardar el género');
+      
+      setTimeout(() => {
+        setGenderMessage('');
+      }, 3000);
     }
   };
 
@@ -208,6 +284,56 @@ const AdminPanel = () => {
     const totalGuests = eventStatus.guestCount || 0;
     const responses = triviaResponses || 0;
     return totalGuests > 0 && responses >= totalGuests;
+  };
+
+  // Funciones para prompts de dibujo
+
+  const addDrawingPrompt = async () => {
+    if (!newPrompt.trim()) return;
+    try {
+      await axios({
+        method: 'post',
+        url: `${API_BASE}/api/drawing-prompts`,
+        data: { prompt: newPrompt },
+        headers: {
+          'x-admin-password': adminPassword
+        }
+      });
+      setNewPrompt('');
+      loadDrawingPrompts();
+    } catch (error) {
+      console.error('Error agregando prompt:', error);
+    }
+  };
+
+  const deleteDrawingPrompt = async (promptId) => {
+    try {
+      await axios({
+        method: 'delete',
+        url: `${API_BASE}/api/drawing-prompts/${promptId}`,
+        headers: {
+          'x-admin-password': adminPassword
+        }
+      });
+      loadDrawingPrompts();
+    } catch (error) {
+      console.error('Error eliminando prompt:', error);
+    }
+  };
+
+  const startDrawingGame = (promptId) => {
+    if (socket) {
+      socket.emit('admin-start-drawing-game', {
+        promptId,
+        duration: drawingDuration
+      });
+    }
+  };
+
+  const showDrawingResults = () => {
+    if (socket) {
+      socket.emit('admin-show-drawing-results');
+    }
   };
 
   const endTrivia = () => {
@@ -235,9 +361,20 @@ const AdminPanel = () => {
   };
 
   const revealGender = () => {
+    if (babyGender) {
+      setShowGenderPopup(true);
+    }
+  };
+
+  const handleConfirmRevealGender = () => {
     if (socket && babyGender) {
+      setShowGenderPopup(false);
       socket.emit('admin-reveal-gender');
     }
+  };
+
+  const handleCancelRevealGender = () => {
+    setShowGenderPopup(false);
   };
 
   const showTriviaWinner = () => {
@@ -262,7 +399,8 @@ const AdminPanel = () => {
       question: '',
       correctAnswer: '',
       points: 10,
-      type: 'text'
+      type: 'text',
+      options: ['', '', '', '']
     });
   };
 
@@ -327,24 +465,253 @@ const AdminPanel = () => {
             </div>
           </div>
 
+          {/* Minijuego de Dibujo */}
+          <div className="admin-card">
+            <h2>🎨 Minijuego de Dibujo</h2>
+            
+            {/* Agregar nuevo prompt */}
+            <div style={{ marginBottom: '20px' }}>
+              <label className="form-label">Agregar tema para dibujar:</label>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newPrompt}
+                  onChange={(e) => setNewPrompt(e.target.value)}
+                  placeholder="Ej: Dibuja un bebé, Una cuna, etc."
+                  style={{ flex: 1 }}
+                />
+                <button 
+                  onClick={addDrawingPrompt}
+                  className="btn btn-primary"
+                  disabled={!newPrompt.trim()}
+                >
+                  Agregar
+                </button>
+              </div>
+            </div>
+
+            {/* Configuración de duración */}
+            <div style={{ marginBottom: '20px' }}>
+              <label className="form-label">Duración del dibujo (segundos):</label>
+              <select
+                className="form-input"
+                value={drawingDuration}
+                onChange={(e) => setDrawingDuration(parseInt(e.target.value))}
+                style={{ marginTop: '10px' }}
+              >
+                <option value={60}>1 minuto</option>
+                <option value={90}>1.5 minutos</option>
+                <option value={120}>2 minutos</option>
+                <option value={180}>3 minutos</option>
+                <option value={300}>5 minutos</option>
+              </select>
+            </div>
+
+            {/* Lista de prompts */}
+            <div>
+              <h3 style={{ marginBottom: '15px' }}>Temas disponibles:</h3>
+              {drawingPrompts.length === 0 ? (
+                <div style={{ 
+                  padding: '20px', 
+                  textAlign: 'center', 
+                  color: 'rgba(255,255,255,0.6)',
+                  fontStyle: 'italic' 
+                }}>
+                  No hay temas agregados. Agrega algunos temas para que los invitados dibujen.
+                </div>
+              ) : (
+                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  {drawingPrompts.map((prompt) => (
+                    <div 
+                      key={prompt.id}
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '8px',
+                        padding: '15px',
+                        marginBottom: '10px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '5px' }}>
+                          🎨 {prompt.prompt}
+                        </div>
+                        <div style={{ fontSize: '12px', opacity: 0.7 }}>
+                          Creado: {new Date(prompt.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button
+                          onClick={() => startDrawingGame(prompt.id)}
+                          className="btn btn-success"
+                          style={{ padding: '8px 15px', fontSize: '14px' }}
+                          disabled={eventStatus.eventState === 'drawing-active' || eventStatus.eventState === 'drawing-voting'}
+                        >
+                          🚀 Iniciar
+                        </button>
+                        <button
+                          onClick={() => deleteDrawingPrompt(prompt.id)}
+                          className="btn btn-danger"
+                          style={{ padding: '8px 12px', fontSize: '14px' }}
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Controles durante el juego */}
+            {(eventStatus.eventState === 'drawing-active' || eventStatus.eventState === 'drawing-voting') && (
+              <div style={{
+                marginTop: '20px',
+                padding: '15px',
+                background: 'rgba(0, 123, 255, 0.1)',
+                border: '2px solid rgba(0, 123, 255, 0.3)',
+                borderRadius: '8px'
+              }}>
+                {eventStatus.eventState === 'drawing-active' && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '10px' }}>
+                      🎨 Minijuego en curso
+                    </div>
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                      Los invitados están dibujando. La votación comenzará automáticamente.
+                    </div>
+                  </div>
+                )}
+                {eventStatus.eventState === 'drawing-voting' && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '15px' }}>
+                      🗳️ Fase de votación
+                    </div>
+                    <button
+                      onClick={showDrawingResults}
+                      className="btn btn-primary"
+                      style={{ padding: '10px 20px' }}
+                    >
+                      📊 Mostrar Resultados
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Configuración del género */}
           <div className="admin-card">
             <h2>👶 Configuración del Bebé</h2>
+            
+            {/* Mensaje de confirmación */}
+            {genderMessage && (
+              <div style={{
+                background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)',
+                color: 'white',
+                padding: '12px 20px',
+                borderRadius: '8px',
+                marginBottom: '20px',
+                textAlign: 'center',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                animation: 'fadeIn 0.3s ease-in'
+              }}>
+                {genderMessage}
+              </div>
+            )}
+            
             <div className="form-group">
-              <label className="form-label">Género del bebé:</label>
-              <select
-                className="form-input"
-                value={babyGender}
-                onChange={(e) => setBabyGender(e.target.value)}
-              >
-                <option value="">Seleccionar...</option>
-                <option value="boy">Niño 👦</option>
-                <option value="girl">Niña 👧</option>
-              </select>
+              <label className="form-label">Selecciona el género del bebé:</label>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '15px',
+                marginTop: '15px'
+              }}>
+                <button
+                  onClick={() => handleGenderSelect('boy')}
+                  style={{
+                    padding: '20px',
+                    borderRadius: '12px',
+                    border: '3px solid ' + (babyGender === 'boy' ? '#74b9ff' : 'rgba(255,255,255,0.2)'),
+                    background: babyGender === 'boy' 
+                      ? 'linear-gradient(135deg, #74b9ff 0%, #0984e3 100%)'
+                      : 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    fontSize: '18px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    transform: babyGender === 'boy' ? 'scale(1.05)' : 'scale(1)',
+                    boxShadow: babyGender === 'boy' ? '0 8px 25px rgba(116, 185, 255, 0.3)' : 'none'
+                  }}
+                  onMouseOver={(e) => {
+                    if (babyGender !== 'boy') {
+                      e.target.style.background = 'rgba(116, 185, 255, 0.2)';
+                      e.target.style.transform = 'scale(1.02)';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (babyGender !== 'boy') {
+                      e.target.style.background = 'rgba(255,255,255,0.1)';
+                      e.target.style.transform = 'scale(1)';
+                    }
+                  }}
+                >
+                  👦<br />
+                  <span style={{ fontSize: '16px' }}>Niño</span>
+                  {babyGender === 'boy' && (
+                    <div style={{ marginTop: '8px', fontSize: '14px', opacity: '0.9' }}>
+                      ✓ Seleccionado
+                    </div>
+                  )}
+                </button>
+                
+                <button
+                  onClick={() => handleGenderSelect('girl')}
+                  style={{
+                    padding: '20px',
+                    borderRadius: '12px',
+                    border: '3px solid ' + (babyGender === 'girl' ? '#fd79a8' : 'rgba(255,255,255,0.2)'),
+                    background: babyGender === 'girl'
+                      ? 'linear-gradient(135deg, #fd79a8 0%, #e84393 100%)'
+                      : 'rgba(255,255,255,0.1)',
+                    color: 'white',
+                    fontSize: '18px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    transform: babyGender === 'girl' ? 'scale(1.05)' : 'scale(1)',
+                    boxShadow: babyGender === 'girl' ? '0 8px 25px rgba(253, 121, 168, 0.3)' : 'none'
+                  }}
+                  onMouseOver={(e) => {
+                    if (babyGender !== 'girl') {
+                      e.target.style.background = 'rgba(253, 121, 168, 0.2)';
+                      e.target.style.transform = 'scale(1.02)';
+                    }
+                  }}
+                  onMouseOut={(e) => {
+                    if (babyGender !== 'girl') {
+                      e.target.style.background = 'rgba(255,255,255,0.1)';
+                      e.target.style.transform = 'scale(1)';
+                    }
+                  }}
+                >
+                  👧<br />
+                  <span style={{ fontSize: '16px' }}>Niña</span>
+                  {babyGender === 'girl' && (
+                    <div style={{ marginTop: '8px', fontSize: '14px', opacity: '0.9' }}>
+                      ✓ Seleccionada
+                    </div>
+                  )}
+                </button>
+              </div>
             </div>
-            <button onClick={saveGender} className="btn btn-success">
-              Guardar Género
-            </button>
           </div>
         </div>
 
@@ -364,16 +731,6 @@ const AdminPanel = () => {
                   required
                 />
               </div>
-              <div className="form-group">
-                <label className="form-label">Respuesta correcta:</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={newQuestion.correctAnswer}
-                  onChange={(e) => setNewQuestion({...newQuestion, correctAnswer: e.target.value})}
-                  required
-                />
-              </div>
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
@@ -389,19 +746,76 @@ const AdminPanel = () => {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Tipo de input:</label>
+                <label className="form-label">Tipo de pregunta:</label>
                 <select
                   className="form-input"
                   value={newQuestion.type}
-                  onChange={(e) => setNewQuestion({...newQuestion, type: e.target.value})}
+                  onChange={(e) => setNewQuestion({
+                    ...newQuestion, 
+                    type: e.target.value,
+                    options: e.target.value === 'multiple-choice' ? ['', '', '', ''] : newQuestion.options,
+                    correctAnswer: e.target.value === 'multiple-choice' ? 'A' : ''
+                  })}
                 >
                   <option value="text">Texto</option>
                   <option value="number">Número</option>
                   <option value="email">Email</option>
                   <option value="date">Fecha</option>
+                  <option value="multiple-choice">Opción Múltiple</option>
                 </select>
               </div>
             </div>
+
+            {/* Opciones múltiples */}
+            {newQuestion.type === 'multiple-choice' && (
+              <div style={{ marginBottom: '20px' }}>
+                <label className="form-label">Opciones de respuesta:</label>
+                {newQuestion.options.map((option, index) => (
+                  <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: '10px', gap: '10px' }}>
+                    <span style={{ minWidth: '30px', fontWeight: 'bold' }}>
+                      {String.fromCharCode(65 + index)}:
+                    </span>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={option}
+                      onChange={(e) => {
+                        const updatedOptions = [...newQuestion.options];
+                        updatedOptions[index] = e.target.value;
+                        setNewQuestion({...newQuestion, options: updatedOptions});
+                      }}
+                      placeholder={`Texto de la opción ${String.fromCharCode(65 + index)}`}
+                      required
+                    />
+                    <input
+                      type="radio"
+                      name="correctOption"
+                      checked={newQuestion.correctAnswer === String.fromCharCode(65 + index)}
+                      onChange={() => setNewQuestion({
+                        ...newQuestion, 
+                        correctAnswer: String.fromCharCode(65 + index)
+                      })}
+                      style={{ marginLeft: '10px' }}
+                    />
+                    <label style={{ fontSize: '14px', color: 'white' }}>Correcta</label>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Respuesta para otros tipos */}
+            {newQuestion.type !== 'multiple-choice' && (
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label">Respuesta correcta:</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newQuestion.correctAnswer}
+                  onChange={(e) => setNewQuestion({...newQuestion, correctAnswer: e.target.value})}
+                  required
+                />
+              </div>
+            )}
             
             <div style={{ display: 'flex', gap: '10px' }}>
               <button type="submit" className="btn btn-primary">
@@ -678,6 +1092,7 @@ const AdminPanel = () => {
               </button>
             </div>
 
+
             {/* Paso 6: Revelación */}
             <div style={{ padding: '15px', background: 'rgba(255, 105, 180, 0.2)', borderRadius: '8px' }}>
               <h4 style={{ marginBottom: '10px' }}>🎊 6. Revelación</h4>
@@ -695,6 +1110,42 @@ const AdminPanel = () => {
                 </div>
               )}
             </div>
+
+            {/* Popup de confirmación para revelar género */}
+            {showGenderPopup && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100vw',
+                height: '100vh',
+                background: 'rgba(0,0,0,0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 9999
+              }}>
+                <div style={{
+                  background: '#23272f',
+                  borderRadius: '16px',
+                  padding: '32px 24px',
+                  minWidth: '320px',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+                  textAlign: 'center',
+                  position: 'relative',
+                  color: '#222'
+                }}>
+                  <h2 style={{ color: '#fff', background: babyGender === 'boy' ? '#0984e3' : '#fd79a8', borderRadius: 8, padding: '8px 0', marginBottom: 16, fontWeight: 700, letterSpacing: 1 }}>¿Revelar Género?</h2>
+                  <div style={{ fontSize: 20, marginBottom: 24, color: '#f5f6fa' }}>
+                    Se mostrará: <b style={{ color: babyGender === 'boy' ? '#74b9ff' : '#ffb6c1', fontSize: 24 }}>{babyGender === 'boy' ? 'NIÑO' : babyGender === 'girl' ? 'NIÑA' : babyGender}</b>
+                  </div>
+                  <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
+                    <button className="btn btn-light" style={{ color: '#d63031', fontWeight: 600, background: '#fff', border: '1px solid #dfe6e9' }} onClick={handleCancelRevealGender}>Cancelar</button>
+                    <button className="btn btn-success" style={{ fontWeight: 600, background: babyGender === 'boy' ? '#0984e3' : '#fd79a8', border: 'none', color: '#fff' }} onClick={handleConfirmRevealGender}>Revelar</button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Paso 7: Ganador de Trivia */}
             <div style={{ padding: '15px', background: 'rgba(255, 215, 0, 0.2)', borderRadius: '8px' }}>

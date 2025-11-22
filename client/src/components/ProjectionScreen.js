@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import Confetti from 'react-confetti';
 
@@ -14,6 +14,19 @@ const ProjectionScreen = () => {
   const [revealedGender, setRevealedGender] = useState(null);
   const [guests, setGuests] = useState([]);
   const [showConfetti, setShowConfetti] = useState(false);
+  
+  // Estados del minijuego de dibujo
+  const [drawingPrompt, setDrawingPrompt] = useState(null);
+  const [drawingCountdown, setDrawingCountdown] = useState(null);
+  const [votingDrawings, setVotingDrawings] = useState([]);
+  const [currentVotingIndex, setCurrentVotingIndex] = useState(0);
+  const [drawingResults, setDrawingResults] = useState(null);
+  const currentEventStateRef = useRef('waiting');
+
+  // Actualizar la referencia cuando cambie el estado
+  useEffect(() => {
+    currentEventStateRef.current = eventState;
+  }, [eventState]);
 
   useEffect(() => {
     const newSocket = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001');
@@ -98,6 +111,49 @@ const ProjectionScreen = () => {
       setTriviaResults(data);
     });
 
+    // Eventos del minijuego de dibujo
+    newSocket.on('drawing-game-started', (data) => {
+      setEventState('drawing-active');
+      setDrawingPrompt(data.prompt);
+      setDrawingCountdown(data.duration);
+      
+      // Iniciar countdown
+      const countdownInterval = setInterval(() => {
+        setDrawingCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(countdownInterval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    });
+
+    newSocket.on('drawing-voting-started', (data) => {
+      setEventState('drawing-voting');
+      setVotingDrawings(data.drawings || []);
+      setDrawingPrompt(data.prompt || 'Dibujo libre');
+      setCurrentVotingIndex(0);
+    });
+
+    newSocket.on('drawing-results', (data) => {
+      setEventState('drawing-results');
+      setDrawingResults(data);
+    });
+
+    newSocket.on('drawing-votes-update', (data) => {
+      console.log('Recibiendo actualización de votos:', data);
+      console.log('Estado actual:', currentEventStateRef.current);
+      // Actualizar votos en tiempo real solo si estamos en modo votación
+      setVotingDrawings(prevDrawings => {
+        if (currentEventStateRef.current === 'drawing-voting') {
+          console.log('Actualizando votos en pantalla de proyección');
+          return data.drawings || [];
+        }
+        return prevDrawings;
+      });
+    });
+
     newSocket.on('event-reset', () => {
       setEventState('waiting');
       setCurrentTrivia(null);
@@ -105,7 +161,17 @@ const ProjectionScreen = () => {
       setCountdown(null);
       setRevealedGender(null);
       setShowConfetti(false);
+      setMessages([]);
+      setFloatingEmojis([]);
+      setGuests([]);
       setVotingData({ boy: { count: 0, names: [] }, girl: { count: 0, names: [] } });
+      
+      // Reset drawing states
+      setDrawingPrompt(null);
+      setDrawingCountdown(null);
+      setVotingDrawings([]);
+      setCurrentVotingIndex(0);
+      setDrawingResults(null);
     });
 
     return () => newSocket.close();
@@ -137,7 +203,7 @@ const ProjectionScreen = () => {
       </div>
       
       {/* Mensajes del chat */}
-      {messages.length > 0 && (
+      {messages && messages.length > 0 && (
         <div style={{
           position: 'fixed',
           bottom: '50px',
@@ -153,11 +219,22 @@ const ProjectionScreen = () => {
             <div key={msg.id} style={{ 
               marginBottom: '10px',
               padding: '8px 12px',
-              background: 'rgba(255,255,255,0.1)',
+              background: msg.censurado ? 'rgba(255, 193, 7, 0.2)' : 'rgba(255,255,255,0.1)',
               borderRadius: '10px',
-              fontSize: '16px'
+              fontSize: '16px',
+              border: msg.censurado ? '1px solid rgba(255, 193, 7, 0.4)' : 'none'
             }}>
               <strong>{msg.name}:</strong> {msg.message}
+              {msg.censurado && (
+                <span style={{ 
+                  marginLeft: '8px', 
+                  fontSize: '12px', 
+                  color: '#ffc107',
+                  fontWeight: 'bold' 
+                }}>
+                  🚫
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -167,36 +244,128 @@ const ProjectionScreen = () => {
 
   const renderTriviaScreen = () => (
     <div style={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      justifyContent: 'center', 
-      alignItems: 'center',
+      display: 'flex',
       minHeight: '100vh',
       background: 'linear-gradient(135deg, #74b9ff 0%, #0984e3 100%)',
       color: 'white',
-      textAlign: 'center',
       padding: '40px'
     }}>
-      <div style={{ fontSize: '96px', marginBottom: '40px' }}>
-        🧠
-      </div>
-      <h1 style={{ fontSize: '48px', marginBottom: '30px', fontWeight: 'bold' }}>
-        ¡Trivia en Curso!
-      </h1>
+      {/* Lado izquierdo - Trivia */}
       <div style={{ 
-        fontSize: '36px', 
-        marginBottom: '40px', 
-        maxWidth: '800px',
-        background: 'rgba(255,255,255,0.1)',
-        padding: '30px',
-        borderRadius: '20px',
-        backdropFilter: 'blur(10px)'
+        flex: '1', 
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        textAlign: 'center',
+        paddingRight: '20px'
       }}>
-        {currentTrivia?.question}
+        <div style={{ fontSize: '96px', marginBottom: '40px' }}>
+          🧠
+        </div>
+        <h1 style={{ fontSize: '48px', marginBottom: '30px', fontWeight: 'bold' }}>
+          ¡Trivia en Curso!
+        </h1>
+        <div style={{ 
+          fontSize: '36px', 
+          marginBottom: '40px', 
+          maxWidth: '600px',
+          background: 'rgba(255,255,255,0.1)',
+          padding: '30px',
+          borderRadius: '20px',
+          backdropFilter: 'blur(10px)'
+        }}>
+          {currentTrivia?.question}
+        </div>
+        <div style={{ fontSize: '24px', opacity: 0.9 }}>
+          {currentTrivia?.points} puntos | Los invitados están respondiendo...
+        </div>
       </div>
-      <div style={{ fontSize: '24px', opacity: 0.9 }}>
-        {currentTrivia?.points} puntos | Los invitados están respondiendo...
+
+      {/* Lado derecho - Chat en vivo */}
+      <div style={{
+        width: '400px',
+        background: 'rgba(255,255,255,0.1)',
+        backdropFilter: 'blur(10px)',
+        borderRadius: '20px',
+        padding: '20px',
+        display: 'flex',
+        flexDirection: 'column',
+        maxHeight: '80vh'
+      }}>
+        <h3 style={{ marginBottom: '20px', textAlign: 'center', fontSize: '24px' }}>
+          💬 Chat en Vivo
+        </h3>
+        
+        <div style={{
+          background: 'rgba(255, 193, 7, 0.2)',
+          border: '1px solid rgba(255, 193, 7, 0.4)',
+          borderRadius: '10px',
+          padding: '10px',
+          marginBottom: '15px',
+          fontSize: '14px',
+          textAlign: 'center'
+        }}>
+          🛡️ Mensajes con respuestas censurados automáticamente
+        </div>
+
+        <div style={{
+          flex: '1',
+          overflowY: 'auto',
+          marginBottom: '20px',
+          maxHeight: 'calc(80vh - 140px)'
+        }}>
+          {!messages || messages.length === 0 ? (
+            <div style={{ 
+              textAlign: 'center', 
+              opacity: 0.6,
+              fontStyle: 'italic',
+              marginTop: '50px' 
+            }}>
+              No hay mensajes aún...
+            </div>
+          ) : (
+            messages.slice(-10).map((msg) => (
+              <div key={msg.id} style={{ 
+                marginBottom: '12px',
+                padding: '10px 15px',
+                background: msg.censurado ? 'rgba(255, 193, 7, 0.2)' : 'rgba(255,255,255,0.1)',
+                borderRadius: '12px',
+                fontSize: '16px',
+                border: msg.censurado ? '1px solid rgba(255, 193, 7, 0.4)' : 'none',
+                animation: 'fadeIn 0.3s ease-in'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                  {msg.name}
+                  {msg.censurado && (
+                    <span style={{ 
+                      marginLeft: '8px', 
+                      fontSize: '12px', 
+                      color: '#ffc107',
+                      background: 'rgba(255, 193, 7, 0.3)',
+                      padding: '2px 6px',
+                      borderRadius: '8px'
+                    }}>
+                      🚫 CENSURADO
+                    </span>
+                  )}
+                </div>
+                <div style={{ wordWrap: 'break-word' }}>{msg.message}</div>
+                <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '4px', textAlign: 'right' }}>
+                  {msg.timestamp}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 
@@ -631,7 +800,7 @@ const ProjectionScreen = () => {
       </h1>
       
       <div style={{ fontSize: '48px', marginTop: '40px', opacity: 0.9 }}>
-        🎉 ¡Felicidades a los futuros papás! 🎉
+        🎉 ¡Felicidades a America y Guillermo! 🎉
       </div>
 
       <style>{`
@@ -645,6 +814,405 @@ const ProjectionScreen = () => {
           100% { text-shadow: 0 0 50px rgba(255,255,255,0.5), 0 0 60px rgba(255,255,255,0.3); }
         }
       `}</style>
+    </div>
+  );
+
+  const renderDrawingScreen = () => (
+    <div style={{ 
+      display: 'flex',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%)',
+      color: 'white',
+      padding: '40px'
+    }}>
+      {/* Lado izquierdo - Dibujo */}
+      <div style={{ 
+        flex: '1', 
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        textAlign: 'center',
+        paddingRight: '20px'
+      }}>
+        <div style={{ fontSize: '96px', marginBottom: '40px' }}>
+          🎨
+        </div>
+        <h1 style={{ fontSize: '48px', marginBottom: '30px', fontWeight: 'bold' }}>
+          ¡Minijuego de Dibujo!
+        </h1>
+        <div style={{ 
+          fontSize: '36px', 
+          marginBottom: '30px', 
+          maxWidth: '600px',
+          background: 'rgba(255,255,255,0.1)',
+          padding: '30px',
+          borderRadius: '20px',
+          backdropFilter: 'blur(10px)'
+        }}>
+          Tema: "{drawingPrompt}"
+        </div>
+        
+        <div style={{
+          fontSize: '48px',
+          fontWeight: 'bold',
+          background: drawingCountdown <= 10 ? 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)' : 'rgba(255,255,255,0.1)',
+          padding: '20px 40px',
+          borderRadius: '25px',
+          marginBottom: '20px',
+          animation: drawingCountdown <= 10 ? 'pulse 1s infinite' : 'none'
+        }}>
+          ⏰ {drawingCountdown}s
+        </div>
+        
+        <div style={{ fontSize: '24px', opacity: 0.9 }}>
+          Los invitados están dibujando...
+        </div>
+      </div>
+
+      {/* Lado derecho - Chat en vivo */}
+      <div style={{
+        width: '400px',
+        background: 'rgba(255,255,255,0.1)',
+        backdropFilter: 'blur(10px)',
+        borderRadius: '20px',
+        padding: '20px',
+        display: 'flex',
+        flexDirection: 'column',
+        maxHeight: '80vh'
+      }}>
+        <h3 style={{ marginBottom: '20px', textAlign: 'center', fontSize: '24px' }}>
+          💬 Chat en Vivo
+        </h3>
+        
+        <div style={{
+          background: 'rgba(108, 92, 231, 0.2)',
+          border: '1px solid rgba(108, 92, 231, 0.4)',
+          borderRadius: '10px',
+          padding: '10px',
+          marginBottom: '15px',
+          fontSize: '14px',
+          textAlign: 'center'
+        }}>
+          🎨 ¡Los invitados están concentrados dibujando!
+        </div>
+
+        <div style={{
+          flex: '1',
+          overflowY: 'auto',
+          marginBottom: '20px',
+          maxHeight: 'calc(80vh - 140px)'
+        }}>
+          {!messages || messages.length === 0 ? (
+            <div style={{ 
+              textAlign: 'center', 
+              opacity: 0.6,
+              fontStyle: 'italic',
+              marginTop: '50px' 
+            }}>
+              Silencio... están dibujando 🤫
+            </div>
+          ) : (
+            messages.slice(-10).map((msg) => (
+              <div key={msg.id} style={{ 
+                marginBottom: '12px',
+                padding: '10px 15px',
+                background: 'rgba(255,255,255,0.1)',
+                borderRadius: '12px',
+                fontSize: '16px',
+                animation: 'fadeIn 0.3s ease-in'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                  {msg.name}
+                </div>
+                <div style={{ wordWrap: 'break-word' }}>{msg.message}</div>
+                <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '4px', textAlign: 'right' }}>
+                  {msg.timestamp}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDrawingVotingScreen = () => (
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      justifyContent: 'center', 
+      alignItems: 'center',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #00b894 0%, #00a085 100%)',
+      color: 'white',
+      textAlign: 'center',
+      padding: '40px'
+    }}>
+      <div style={{ fontSize: '96px', marginBottom: '40px' }}>
+        🖼️
+      </div>
+      <h1 style={{ fontSize: '48px', marginBottom: '30px', fontWeight: 'bold' }}>
+        ¡Vota por los Mejores Dibujos!
+      </h1>
+      
+      <div style={{ 
+        fontSize: '24px', 
+        marginBottom: '40px',
+        background: 'rgba(255,255,255,0.1)',
+        padding: '15px 30px',
+        borderRadius: '20px',
+        backdropFilter: 'blur(10px)'
+      }}>
+        Tema: "{drawingPrompt}"
+      </div>
+
+      {votingDrawings && votingDrawings.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '30px',
+          width: '100%',
+          maxWidth: '1200px'
+        }}>
+          {votingDrawings.map((drawing, index) => (
+            <div key={drawing.id} style={{
+              background: 'rgba(255,255,255,0.1)',
+              borderRadius: '20px',
+              padding: '20px',
+              backdropFilter: 'blur(10px)',
+              border: '2px solid rgba(255,255,255,0.2)',
+              transition: 'all 0.3s ease'
+            }}>
+              <div style={{
+                background: 'white',
+                padding: '10px',
+                borderRadius: '10px',
+                marginBottom: '15px'
+              }}>
+                <img
+                  src={drawing.drawing}
+                  alt={`Dibujo de ${drawing.guestName}`}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '200px',
+                    border: '2px solid #ddd',
+                    borderRadius: '5px'
+                  }}
+                />
+              </div>
+              
+              <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' }}>
+                por: {drawing.guestName}
+              </div>
+              
+              <div style={{
+                fontSize: '16px',
+                background: 'rgba(0, 184, 148, 0.2)',
+                padding: '8px 16px',
+                borderRadius: '15px',
+                display: 'inline-block'
+              }}>
+                👍 {drawing.votes || 0} votos
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ 
+        fontSize: '20px', 
+        marginTop: '40px',
+        opacity: 0.8
+      }}>
+        Los invitados están votando desde sus dispositivos...
+      </div>
+    </div>
+  );
+
+  const renderDrawingResultsScreen = () => (
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      justifyContent: 'center', 
+      alignItems: 'center',
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #f39c12 0%, #e67e22 100%)',
+      color: 'white',
+      textAlign: 'center',
+      padding: '40px'
+    }}>
+      <Confetti />
+      
+      <div style={{ fontSize: '96px', marginBottom: '40px' }}>
+        🏆
+      </div>
+      <h1 style={{ fontSize: '48px', marginBottom: '30px', fontWeight: 'bold' }}>
+        🎨 Resultados del Minijuego de Dibujo 🎨
+      </h1>
+      
+      <div style={{ 
+        fontSize: '24px', 
+        marginBottom: '40px',
+        background: 'rgba(255,255,255,0.1)',
+        padding: '15px 30px',
+        borderRadius: '20px',
+        backdropFilter: 'blur(10px)'
+      }}>
+        Tema: "{drawingResults?.prompt || drawingPrompt}"
+      </div>
+
+      {/* Mostrar ganador destacado */}
+      {drawingResults && drawingResults.winner && (
+        <div style={{
+          background: 'linear-gradient(135deg, #f1c40f 0%, #f39c12 100%)',
+          padding: '30px',
+          borderRadius: '25px',
+          marginBottom: '40px',
+          border: '4px solid #f1c40f',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.3)'
+        }}>
+          <div style={{ fontSize: '72px', marginBottom: '20px' }}>
+            👑
+          </div>
+          <h2 style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '15px' }}>
+            ¡GANADOR!
+          </h2>
+          <div style={{ fontSize: '36px', fontWeight: 'bold', marginBottom: '15px' }}>
+            {drawingResults.winner.guestName}
+          </div>
+          <div style={{ fontSize: '28px', marginBottom: '15px' }}>
+            👍 {drawingResults.winner.votes} votos
+          </div>
+          {drawingResults.pointsAwarded > 0 && (
+            <div style={{ 
+              fontSize: '24px', 
+              marginBottom: '20px',
+              background: 'rgba(255,255,255,0.2)',
+              padding: '10px 20px',
+              borderRadius: '15px',
+              display: 'inline-block'
+            }}>
+              🎯 +{drawingResults.pointsAwarded} puntos otorgados
+            </div>
+          )}
+          <div style={{
+            background: 'white',
+            padding: '10px',
+            borderRadius: '10px',
+            display: 'inline-block'
+          }}>
+            <img
+              src={drawingResults.winner.drawing}
+              alt={`Dibujo ganador de ${drawingResults.winner.guestName}`}
+              style={{
+                maxWidth: '200px',
+                maxHeight: '150px',
+                border: '2px solid #f1c40f',
+                borderRadius: '5px'
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Estadísticas */}
+      <div style={{
+        display: 'flex',
+        gap: '30px',
+        marginBottom: '40px',
+        fontSize: '20px'
+      }}>
+        <div style={{
+          background: 'rgba(255,255,255,0.1)',
+          padding: '15px 25px',
+          borderRadius: '15px'
+        }}>
+          🎨 {drawingResults?.rankings?.length || 0} Dibujos
+        </div>
+        <div style={{
+          background: 'rgba(255,255,255,0.1)',
+          padding: '15px 25px',
+          borderRadius: '15px'
+        }}>
+          👥 {drawingResults?.totalParticipants || 0} Participantes
+        </div>
+        <div style={{
+          background: 'rgba(255,255,255,0.1)',
+          padding: '15px 25px',
+          borderRadius: '15px'
+        }}>
+          👍 {drawingResults?.totalVotes || 0} Votos Totales
+        </div>
+      </div>
+
+      {/* Ranking completo */}
+      {drawingResults && drawingResults.rankings && (
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          gap: '15px',
+          width: '100%',
+          maxWidth: '900px'
+        }}>
+          <h3 style={{ fontSize: '28px', marginBottom: '20px' }}>
+            📊 Ranking Completo
+          </h3>
+          {drawingResults.rankings.map((result, index) => (
+            <div key={result.guestId} style={{
+              background: index === 0 ? 'linear-gradient(135deg, #f1c40f 0%, #f39c12 100%)' 
+                       : index === 1 ? 'linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%)'
+                       : index === 2 ? 'linear-gradient(135deg, #e67e22 0%, #d35400 100%)'
+                       : 'rgba(255,255,255,0.1)',
+              padding: '20px',
+              borderRadius: '15px',
+              border: index < 3 ? `3px solid ${index === 0 ? '#f1c40f' : index === 1 ? '#95a5a6' : '#e67e22'}` : '2px solid rgba(255,255,255,0.2)',
+              backdropFilter: 'blur(10px)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              opacity: index === 0 ? 1 : 0.9
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                <div style={{ fontSize: '36px' }}>
+                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}°`}
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
+                    {result.guestName}
+                  </div>
+                  {index === 0 && (
+                    <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                      🏆 ¡Mejor artista!
+                    </div>
+                  )}
+                </div>
+                <div style={{
+                  background: 'white',
+                  padding: '5px',
+                  borderRadius: '5px',
+                  marginLeft: '20px'
+                }}>
+                  <img
+                    src={result.drawing}
+                    alt={`Dibujo de ${result.guestName}`}
+                    style={{
+                      width: '60px',
+                      height: '45px',
+                      objectFit: 'contain',
+                      border: '1px solid #ddd',
+                      borderRadius: '3px'
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 'bold' }}>
+                👍 {result.votes}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -711,9 +1279,9 @@ const ProjectionScreen = () => {
             borderRadius: '15px',
             opacity: 0.9
           }}>
-            🧠 Trivia: {triviaResults.winner.triviaPoints} + 🎯 Adivinanza: {triviaResults.winner.genderPoints}
+            🧠 Trivia: {triviaResults.winner.triviaPoints} + 🎨 Dibujo: {triviaResults.winner.drawingPoints || 0} + 🎯 Revelacion: {triviaResults.winner.genderPoints}
           </div>          <div style={{ fontSize: '36px', marginBottom: '40px', opacity: 0.9 }}>
-            🎉 ¡El más inteligente del grupo! 🎉
+            🎉 ¡Felicidades! 🎉
           </div>
         </>
       )}
@@ -747,7 +1315,7 @@ const ProjectionScreen = () => {
                   <div>
                     <div>{player.guestName}</div>
                     <div style={{ fontSize: '16px', opacity: 0.7 }}>
-                      🧠{player.triviaPoints || 0} + 🎯{player.genderPoints || 0}
+                      🧠{player.triviaPoints || 0} + 🎨{player.drawingPoints || 0} + 🎯{player.genderPoints || 0}
                     </div>
                   </div>
                 </div>
@@ -773,7 +1341,8 @@ const ProjectionScreen = () => {
   );
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh' }}>
+    <div style={{ position: 'relative', minHeight: '100vh', zIndex: 1 }}>
+      <div className="animated-bg" />
       {/* Emojis flotantes */}
       {floatingEmojis.map((emoji) => (
         <div
@@ -812,6 +1381,9 @@ const ProjectionScreen = () => {
       {eventState === 'trivia-final' && renderTriviaFinalResults()}
       {eventState === 'voting-active' && renderVotingScreen()}
       {eventState === 'voting-results' && renderVotingResults()}
+      {eventState === 'drawing-active' && renderDrawingScreen()}
+      {eventState === 'drawing-voting' && renderDrawingVotingScreen()}
+      {eventState === 'drawing-results' && renderDrawingResultsScreen()}
       {eventState === 'countdown' && renderCountdownScreen()}
       {eventState === 'revealed' && renderRevealScreen()}
       {eventState === 'trivia-winner' && renderTriviaWinnerScreen()}
