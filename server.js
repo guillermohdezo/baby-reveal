@@ -630,9 +630,9 @@ io.on('connection', (socket) => {
     if (babyGender && eventState === 'revealed') {
       finalVotes.forEach((voteData, guestId) => {
         const currentScore = finalScores.get(guestId) || 0;
-        // +5 puntos por adivinar correctamente el sexo
+        // +20 puntos por adivinar correctamente el sexo
         if (voteData.vote === babyGender) {
-          finalScores.set(guestId, currentScore + 5);
+          finalScores.set(guestId, currentScore + 20);
         } else {
           finalScores.set(guestId, currentScore);
         }
@@ -646,7 +646,7 @@ io.on('connection', (socket) => {
         const guest = Array.from(guests.values()).find(g => g.id === guestId);
         if (guest) {
           const triviaPoints = triviaScores.get(guestId) || 0;
-          const genderPoints = (babyGender && finalVotes.has(guestId) && finalVotes.get(guestId).vote === babyGender) ? 5 : 0;
+          const genderPoints = (babyGender && finalVotes.has(guestId) && finalVotes.get(guestId).vote === babyGender) ? 20 : 0;
           const drawingPoints = drawingScores.get(guestId) || 0;
           
           winner = {
